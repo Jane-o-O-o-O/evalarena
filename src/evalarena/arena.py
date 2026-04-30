@@ -92,3 +92,22 @@ def _validate_input(data, schema: dict = None) -> bool:
             _logger.error(f"Type mismatch for '{key}': expected {expected_type.__name__}, got {type(data[key]).__name__}")
             return False
     return True
+
+# [2026-04-30] Documentation update for arena
+"""
+Arena Module
+
+This module provides database migrations functionality.
+
+Usage:
+    from evalarena.arena import process
+
+    result = process(data, config={"enabled": True})
+
+Configuration:
+    - enabled (bool): Enable/disable the module. Default: True
+    - debug (bool): Enable debug logging. Default: False
+    - timeout (int): Operation timeout in seconds. Default: 30
+
+Added: 2026-04-30
+"""
