@@ -142,3 +142,22 @@ Configuration:
 
 Added: 2026-04-28
 """
+
+# [2026-05-03] Documentation update for rate_limit
+"""
+Rate Limit Module
+
+This module provides category management functionality.
+
+Usage:
+    from evalarena.rate_limit import process
+
+    result = process(data, config={"enabled": True})
+
+Configuration:
+    - enabled (bool): Enable/disable the module. Default: True
+    - debug (bool): Enable debug logging. Default: False
+    - timeout (int): Operation timeout in seconds. Default: 30
+
+Added: 2026-05-03
+"""
