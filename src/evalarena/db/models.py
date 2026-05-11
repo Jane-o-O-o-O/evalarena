@@ -14,7 +14,7 @@ class Winner(str, Enum):
     TIE = "tie"
 
 
-# ── Model ────────────────────────────────────────────────────────────
+# -- Model ---------------------------------------------------------------
 
 
 class ModelCreate(BaseModel):
@@ -34,9 +34,39 @@ class ModelOut(BaseModel):
     ties: int
     total_games: int
     win_rate: float
+    ci_lower: float = 0.0
+    ci_upper: float = 0.0
 
 
-# ── Battle ───────────────────────────────────────────────────────────
+class ModelDetail(BaseModel):
+    """Extended model info with match history."""
+
+    id: str
+    name: str
+    rating: float
+    wins: int
+    losses: int
+    ties: int
+    total_games: int
+    win_rate: float
+    ci_lower: float
+    ci_upper: float
+    recent_battles: list["BattleSummary"] = []
+    created_at: str = ""
+
+
+class BattleSummary(BaseModel):
+    """Brief battle info for match history."""
+
+    id: str
+    prompt: str
+    opponent_name: str
+    result: str  # "win", "loss", "tie"
+    rating_change: float
+    created_at: str
+
+
+# -- Battle ---------------------------------------------------------------
 
 
 class BattleCreate(BaseModel):
@@ -50,12 +80,13 @@ class BattleCreate(BaseModel):
 
 
 class BattleOut(BaseModel):
-    """Battle returned from API (blind — no model identities)."""
+    """Battle returned from API (blind -- no model identities)."""
 
     id: str
     prompt: str
     response_a: str
     response_b: str
+    voted: bool = False
     created_at: str
 
 
@@ -72,7 +103,7 @@ class BattleDetail(BaseModel):
     created_at: str
 
 
-# ── Vote ─────────────────────────────────────────────────────────────
+# -- Vote ----------------------------------------------------------------
 
 
 class VoteCreate(BaseModel):
@@ -91,7 +122,7 @@ class VoteOut(BaseModel):
     created_at: str
 
 
-# ── Leaderboard ──────────────────────────────────────────────────────
+# -- Leaderboard ----------------------------------------------------------
 
 
 class LeaderboardEntry(BaseModel):
@@ -106,6 +137,8 @@ class LeaderboardEntry(BaseModel):
     ties: int
     total_games: int
     win_rate: float
+    ci_lower: float = 0.0
+    ci_upper: float = 0.0
 
 
 class LeaderboardOut(BaseModel):
@@ -113,3 +146,42 @@ class LeaderboardOut(BaseModel):
 
     entries: list[LeaderboardEntry]
     total_models: int
+
+
+# -- Head-to-Head ---------------------------------------------------------
+
+
+class HeadToHead(BaseModel):
+    """Head-to-head comparison between two models."""
+
+    model_a: str
+    model_b: str
+    model_a_wins: int
+    model_b_wins: int
+    ties: int
+    total_battles: int
+    model_a_win_rate: float
+    model_a_rating_before: float = 0.0
+    model_a_rating_after: float = 0.0
+    model_b_rating_before: float = 0.0
+    model_b_rating_after: float = 0.0
+
+
+# -- Stats ----------------------------------------------------------------
+
+
+class StatsOut(BaseModel):
+    """Aggregate platform statistics."""
+
+    total_models: int
+    total_battles: int
+    total_votes: int
+    avg_rating: float
+    highest_rating: float
+    lowest_rating: float
+    most_active_model: str = ""
+    battles_today: int = 0
+
+
+# Resolve forward references
+ModelDetail.model_rebuild()

@@ -34,7 +34,13 @@
         </div>
     </div>
     <div id="no-battles" class="status" style="display:none;">
-        暂无对战。请先注册模型并创建对战。
+        暂无待投票的对战。请先创建新的对战。
+    </div>
+    <div id="vote-result" style="display:none;">
+        <div class="flash flash-success" id="vote-result-text"></div>
+        <div style="text-align: center; margin-top: 1rem;">
+            <button class="btn btn-primary" onclick="loadBattle()">下一题 →</button>
+        </div>
     </div>
 </div>
 
@@ -46,6 +52,7 @@
                 <th>#</th>
                 <th>模型</th>
                 <th>Rating</th>
+                <th>95% CI</th>
                 <th>W</th>
                 <th>L</th>
                 <th>T</th>
@@ -54,19 +61,31 @@
         <tbody>
             {% for entry in leaderboard %}
             <tr>
-                <td>{{ entry.rank }}</td>
-                <td>{{ entry.name }}</td>
+                <td>
+                    {% if entry.rank == 1 %}🥇
+                    {% elif entry.rank == 2 %}🥈
+                    {% elif entry.rank == 3 %}🥉
+                    {% else %}{{ entry.rank }}
+                    {% endif %}
+                </td>
+                <td><a href="/model/{{ entry.model_id }}" style="color: #e0e0e0; text-decoration: none;">{{ entry.name }}</a></td>
                 <td class="rating">{{ "%.0f"|format(entry.rating) }}</td>
+                <td style="color: #666; font-size: 0.85rem;">{{ "%.0f"|format(entry.ci_lower) }}-{{ "%.0f"|format(entry.ci_upper) }}</td>
                 <td><span class="badge badge-w">{{ entry.wins }}</span></td>
                 <td><span class="badge badge-l">{{ entry.losses }}</span></td>
                 <td><span class="badge badge-t">{{ entry.ties }}</span></td>
             </tr>
             {% endfor %}
             {% if not leaderboard %}
-            <tr><td colspan="6" class="status">暂无数据</td></tr>
+            <tr><td colspan="7" class="status">暂无数据</td></tr>
             {% endif %}
         </tbody>
     </table>
+    {% if leaderboard %}
+    <div style="text-align: right; margin-top: 0.5rem;">
+        <a href="/leaderboard" style="color: #00d4ff; font-size: 0.9rem;">查看完整排行榜 →</a>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
 
@@ -78,10 +97,11 @@ async function loadBattle() {
     document.getElementById('loading').style.display = 'block';
     document.getElementById('battle-content').style.display = 'none';
     document.getElementById('no-battles').style.display = 'none';
+    document.getElementById('vote-result').style.display = 'none';
     document.getElementById('message').innerHTML = '';
 
     try {
-        const resp = await fetch('/api/arena?limit=1');
+        const resp = await fetch('/api/arena?limit=1&unvoted_only=true');
         const battles = await resp.json();
         if (battles.length === 0) {
             document.getElementById('loading').style.display = 'none';
@@ -102,6 +122,11 @@ async function loadBattle() {
 
 async function vote(winner) {
     if (!currentBattleId) return;
+
+    // Disable buttons
+    const btns = document.querySelectorAll('.btn-a, .btn-b, .btn-tie');
+    btns.forEach(b => b.disabled = true);
+
     try {
         const resp = await fetch('/api/vote', {
             method: 'POST',
@@ -109,15 +134,19 @@ async function vote(winner) {
             body: JSON.stringify({battle_id: currentBattleId, winner: winner})
         });
         if (resp.ok) {
-            showMessage('success', '✅ 投票成功！ELO 评分已更新。');
-            loadBattle();
-            setTimeout(() => location.reload(), 500);
+            document.getElementById('battle-content').style.display = 'none';
+            document.getElementById('vote-result').style.display = 'block';
+            const labels = {'model_a': 'A 更好', 'model_b': 'B 更好', 'tie': '平局'};
+            document.getElementById('vote-result-text').textContent =
+                '✅ 投票成功！你选择了: ' + labels[winner] + '。ELO 评分已更新。';
         } else {
             const err = await resp.json();
             showMessage('error', '❌ ' + (err.detail || '投票失败'));
+            btns.forEach(b => b.disabled = false);
         }
     } catch (e) {
         showMessage('error', '❌ 网络错误: ' + e.message);
+        btns.forEach(b => b.disabled = false);
     }
 }
 

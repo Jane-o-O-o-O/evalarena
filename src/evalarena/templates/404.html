@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}404 — EvalArena{% endblock %}
+
+{% block content %}
+<div style="text-align: center; padding: 4rem 2rem;">
+    <h1 style="font-size: 4rem; color: #00d4ff;">404</h1>
+    <p style="font-size: 1.2rem; color: #a0a0c0; margin-top: 1rem;">{{ message | default("页面未找到") }}</p>
+    <a href="/arena" class="btn btn-primary" style="margin-top: 2rem;">返回竞技场</a>
+</div>
+{% endblock %}

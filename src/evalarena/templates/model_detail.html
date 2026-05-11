@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ model.name }} — EvalArena{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+    <h1>📊 {{ model.name }}</h1>
+    <a href="/arena" class="btn btn-secondary">← 返回竞技场</a>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 0.3rem;">ELO Rating</div>
+        <div class="rating" style="font-size: 2rem;">{{ "%.0f"|format(model.rating) }}</div>
+        <div style="font-size: 0.8rem; color: #666;">± {{ "%.0f"|format((model.ci_upper - model.ci_lower) / 2) }}</div>
+    </div>
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 0.3rem;">总场次</div>
+        <div style="font-size: 2rem; color: #fff;">{{ model.total_games }}</div>
+    </div>
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 0.3rem;">胜率</div>
+        <div style="font-size: 2rem; color: #4CAF50;">{{ "%.1f"|format(model.win_rate) }}%</div>
+    </div>
+    <div class="card" style="text-align: center;">
+        <div style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 0.3rem;">W / L / T</div>
+        <div style="font-size: 1.5rem;">
+            <span style="color: #4CAF50;">{{ model.wins }}</span> /
+            <span style="color: #f44336;">{{ model.losses }}</span> /
+            <span style="color: #FF9800;">{{ model.ties }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2 style="margin-bottom: 1rem;">📈 Rating 区间</h2>
+    <div style="position: relative; height: 40px; background: #0f0f1f; border-radius: 8px; overflow: hidden;">
+        {% set range_max = model.ci_upper + 50 %}
+        {% set range_min = model.ci_lower - 50 %}
+        {% set range_total = range_max - range_min %}
+        {% set bar_left = ((model.ci_lower - range_min) / range_total * 100) %}
+        {% set bar_width = ((model.ci_upper - model.ci_lower) / range_total * 100) %}
+        {% set rating_pos = ((model.rating - range_min) / range_total * 100) %}
+        <div style="position: absolute; top: 10px; height: 20px; left: {{ bar_left }}%; width: {{ bar_width }}%; background: rgba(0, 212, 255, 0.3); border-radius: 4px;"></div>
+        <div style="position: absolute; top: 5px; left: {{ rating_pos }}%; width: 3px; height: 30px; background: #00d4ff; border-radius: 2px;"></div>
+        <div style="position: absolute; bottom: 2px; left: {{ bar_left }}%; font-size: 0.7rem; color: #666;">{{ "%.0f"|format(model.ci_lower) }}</div>
+        <div style="position: absolute; bottom: 2px; right: {{ 100 - bar_left - bar_width }}%; font-size: 0.7rem; color: #666;">{{ "%.0f"|format(model.ci_upper) }}</div>
+    </div>
+    <p style="color: #a0a0c0; font-size: 0.85rem; margin-top: 0.5rem;">
+        95% 置信区间：{{ "%.0f"|format(model.ci_lower) }} — {{ "%.0f"|format(model.ci_upper) }}（基于 {{ model.total_games }} 场对战）
+    </p>
+</div>
+
+<div class="card">
+    <h2 style="margin-bottom: 1rem;">⚔️ 对战历史</h2>
+    {% if model.recent_battles %}
+    <table>
+        <thead>
+            <tr>
+                <th>对手</th>
+                <th>Prompt</th>
+                <th>结果</th>
+                <th>时间</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for b in model.recent_battles %}
+            <tr>
+                <td><strong>{{ b.opponent_name }}</strong></td>
+                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ b.prompt }}</td>
+                <td>
+                    {% if b.result == "win" %}<span class="badge badge-w">胜</span>
+                    {% elif b.result == "loss" %}<span class="badge badge-l">负</span>
+                    {% elif b.result == "tie" %}<span class="badge badge-t">平</span>
+                    {% else %}<span style="color: #666;">待定</span>
+                    {% endif %}
+                </td>
+                <td style="color: #666; font-size: 0.85rem;">{{ b.created_at[:16] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="status">暂无对战记录</p>
+    {% endif %}
+</div>
+{% endblock %}

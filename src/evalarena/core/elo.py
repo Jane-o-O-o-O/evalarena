@@ -93,6 +93,31 @@ def calculate_elo_update(
     )
 
 
+
+def rating_confidence_interval(
+    rating: float,
+    total_games: int,
+    confidence: float = 1.96,
+) -> tuple[float, float]:
+    """Calculate the confidence interval for an ELO rating.
+
+    Uses the standard error approximation: SE ≈ 400 / sqrt(N) for N games,
+    which is a common heuristic in competitive rating systems.
+
+    Args:
+        rating: Current ELO rating.
+        total_games: Number of games played.
+        confidence: Z-score for confidence level. Default 1.96 for 95% CI.
+
+    Returns:
+        Tuple of (lower_bound, upper_bound), both rounded to 1 decimal.
+    """
+    if total_games == 0:
+        return (rating - 400.0, rating + 400.0)
+    se = 400.0 / math.sqrt(total_games)
+    margin = confidence * se
+    return (round(rating - margin, 1), round(rating + margin, 1))
+
 def update_ratings(
     winner: ModelRating,
     loser: ModelRating,

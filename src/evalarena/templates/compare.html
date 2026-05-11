@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}模型对比 — EvalArena{% endblock %}
+
+{% block content %}
+<h1>🔍 模型对比</h1>
+
+<div class="card">
+    <h2 style="margin-bottom: 1rem;">选择两个模型进行 Head-to-Head 对比</h2>
+    <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+        <select id="model-a" class="btn btn-secondary" style="flex: 1; min-width: 150px;">
+            <option value="">选择模型 A</option>
+            {% for m in models %}
+            <option value="{{ m.id }}">{{ m.name }} ({{ "%.0f"|format(m.rating) }})</option>
+            {% endfor %}
+        </select>
+        <span style="font-size: 1.5rem; color: #00d4ff;">VS</span>
+        <select id="model-b" class="btn btn-secondary" style="flex: 1; min-width: 150px;">
+            <option value="">选择模型 B</option>
+            {% for m in models %}
+            <option value="{{ m.id }}">{{ m.name }} ({{ "%.0f"|format(m.rating) }})</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-primary" onclick="compare()">🔍 对比</button>
+    </div>
+</div>
+
+<div id="result" style="display: none;">
+    <div class="card" id="comparison-card">
+    </div>
+</div>
+
+<div id="error" style="display: none;">
+    <div class="flash flash-error" id="error-msg"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function compare() {
+    const a = document.getElementById('model-a').value;
+    const b = document.getElementById('model-b').value;
+    if (!a || !b) {
+        showError('请选择两个模型');
+        return;
+    }
+    if (a === b) {
+        showError('请选择不同的模型');
+        return;
+    }
+    try {
+        const resp = await fetch(`/api/models/${a}/head-to-head/${b}`);
+        if (!resp.ok) {
+            const err = await resp.json();
+            showError(err.detail || '对比失败');
+            return;
+        }
+        const data = await resp.json();
+        showResult(data);
+    } catch (e) {
+        showError('网络错误: ' + e.message);
+    }
+}
+
+function showResult(data) {
+    document.getElementById('error').style.display = 'none';
+    document.getElementById('result').style.display = 'block';
+
+    const total = data.total_battles || 1;
+    const aPct = (data.model_a_wins / total * 100).toFixed(1);
+    const bPct = (data.model_b_wins / total * 100).toFixed(1);
+    const tPct = (data.ties / total * 100).toFixed(1);
+
+    document.getElementById('comparison-card').innerHTML = `
+        <h2 style="margin-bottom: 1.5rem;">${data.model_a} vs ${data.model_b}</h2>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+            <div style="text-align: center;">
+                <h3 style="color: #4CAF50;">${data.model_a}</h3>
+                <div style="font-size: 3rem; color: #4CAF50; font-weight: 700;">${data.model_a_wins}</div>
+                <div style="color: #a0a0c0;">胜场 (${aPct}%)</div>
+                <div style="margin-top: 0.5rem; color: #00d4ff;">Rating: ${data.model_a_rating_after.toFixed(0)}</div>
+            </div>
+            <div style="text-align: center;">
+                <h3 style="color: #2196F3;">${data.model_b}</h3>
+                <div style="font-size: 3rem; color: #2196F3; font-weight: 700;">${data.model_b_wins}</div>
+                <div style="color: #a0a0c0;">胜场 (${bPct}%)</div>
+                <div style="margin-top: 0.5rem; color: #00d4ff;">Rating: ${data.model_b_rating_after.toFixed(0)}</div>
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 1.5rem; padding: 1rem; background: #0f0f1f; border-radius: 8px;">
+            <div style="color: #FF9800; font-size: 1.2rem;">平局: ${data.ties} (${tPct}%)</div>
+            <div style="color: #a0a0c0; margin-top: 0.3rem;">总对战场次: ${data.total_battles}</div>
+        </div>
+        <div style="margin-top: 1rem; background: #0f0f1f; border-radius: 8px; height: 30px; overflow: hidden; display: flex;">
+            <div style="background: #4CAF50; width: ${aPct}%; min-width: 2px;"></div>
+            <div style="background: #FF9800; width: ${tPct}%; min-width: 2px;"></div>
+            <div style="background: #2196F3; width: ${bPct}%; min-width: 2px;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #666; margin-top: 0.3rem;">
+            <span>${data.model_a} ${aPct}%</span>
+            <span>${data.model_b} ${bPct}%</span>
+        </div>
+    `;
+}
+
+function showError(msg) {
+    document.getElementById('result').style.display = 'none';
+    document.getElementById('error').style.display = 'block';
+    document.getElementById('error-msg').textContent = '❌ ' + msg;
+}
+</script>
+{% endblock %}
