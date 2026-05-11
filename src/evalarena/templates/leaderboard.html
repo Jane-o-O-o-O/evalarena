@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard — EvalArena{% endblock %}
+{% block nav_lb %}active{% endblock %}
+
+{% block content %}
+<h1>🏆 排行榜</h1>
+
+<div class="card">
+    <p style="color: #a0a0c0; margin-bottom: 1rem;">
+        共 {{ total }} 个模型 · 基于 ELO 评分系统排名
+    </p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>模型</th>
+                <th>Rating</th>
+                <th>胜</th>
+                <th>负</th>
+                <th>平</th>
+                <th>总场次</th>
+                <th>胜率</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in entries %}
+            <tr>
+                <td>
+                    {% if entry.rank == 1 %}🥇
+                    {% elif entry.rank == 2 %}🥈
+                    {% elif entry.rank == 3 %}🥉
+                    {% else %}{{ entry.rank }}
+                    {% endif %}
+                </td>
+                <td><strong>{{ entry.name }}</strong></td>
+                <td class="rating">{{ "%.0f"|format(entry.rating) }}</td>
+                <td><span class="badge badge-w">{{ entry.wins }}</span></td>
+                <td><span class="badge badge-l">{{ entry.losses }}</span></td>
+                <td><span class="badge badge-t">{{ entry.ties }}</span></td>
+                <td>{{ entry.total_games }}</td>
+                <td>{{ "%.1f"|format(entry.win_rate) }}%</td>
+            </tr>
+            {% endfor %}
+            {% if not entries %}
+            <tr>
+                <td colspan="8" class="status">
+                    暂无数据。请先注册模型并进行对战。
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h2 style="margin-bottom: 0.5rem;">📡 API 接口</h2>
+    <p style="color: #a0a0c0; font-size: 0.9rem;">
+        <code>GET /api/leaderboard</code> — JSON 格式排行榜<br>
+        <code>GET /api/leaderboard?limit=10&offset=0</code> — 分页查询
+    </p>
+</div>
+{% endblock %}

@@ -1,1 +1,1 @@
-"""Tests for arena endpoints."""
+"""Tests for the arena page rendering."""
