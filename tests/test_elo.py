@@ -153,3 +153,57 @@ class TestUpdateRatings:
         update_ratings(a, b, "b-2")
         assert a.total_games == 2
         assert b.total_games == 2
+
+class TestConfidenceInterval:
+    """Tests for the rating confidence interval calculation."""
+
+    def test_no_games_wide_interval(self):
+        """No games played should give a very wide interval."""
+        from evalarena.core.elo import rating_confidence_interval
+        lo, hi = rating_confidence_interval(1000.0, 0)
+        assert lo == 600.0
+        assert hi == 1400.0
+
+    def test_many_games_narrow_interval(self):
+        """Many games should narrow the interval."""
+        from evalarena.core.elo import rating_confidence_interval
+        lo, hi = rating_confidence_interval(1200.0, 100)
+        assert lo > 1100.0
+        assert hi < 1300.0
+
+    def test_interval_symmetric(self):
+        """Interval should be symmetric around the rating."""
+        from evalarena.core.elo import rating_confidence_interval
+        rating = 1100.0
+        lo, hi = rating_confidence_interval(rating, 50)
+        assert (rating - lo) == pytest.approx(hi - rating, abs=0.1)
+
+    def test_more_games_tighter(self):
+        """More games should result in a tighter interval."""
+        from evalarena.core.elo import rating_confidence_interval
+        lo1, hi1 = rating_confidence_interval(1000.0, 10)
+        lo2, hi2 = rating_confidence_interval(1000.0, 100)
+        width1 = hi1 - lo1
+        width2 = hi2 - lo2
+        assert width2 < width1
+
+    def test_custom_z_score(self):
+        """Custom z-score should scale the interval."""
+        from evalarena.core.elo import rating_confidence_interval
+        lo95, hi95 = rating_confidence_interval(1000.0, 50, confidence=1.96)
+        lo99, hi99 = rating_confidence_interval(1000.0, 50, confidence=2.576)
+        assert (hi99 - lo99) > (hi95 - lo95)
+
+    def test_zero_games_custom_rating(self):
+        """Zero games with custom rating should still work."""
+        from evalarena.core.elo import rating_confidence_interval
+        lo, hi = rating_confidence_interval(1500.0, 0)
+        assert lo == 1100.0
+        assert hi == 1900.0
+
+    def test_one_game(self):
+        """One game should give the maximum possible interval width."""
+        from evalarena.core.elo import rating_confidence_interval
+        lo, hi = rating_confidence_interval(1000.0, 1)
+        assert lo == 216.0  # 1000 - 1.96 * 400
+        assert hi == 1784.0  # 1000 + 1.96 * 400
