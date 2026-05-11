@@ -1,1 +1,1 @@
-"""Tests for leaderboard endpoints."""
+"""Tests for the leaderboard page rendering."""

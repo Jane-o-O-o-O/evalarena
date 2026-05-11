@@ -1,1 +1,1 @@
-"""Tests for vote endpoints."""
+"""Tests for the vote page rendering."""
