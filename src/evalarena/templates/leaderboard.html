@@ -6,15 +6,26 @@
 <h1>🏆 排行榜</h1>
 
 <div class="card">
-    <p style="color: #a0a0c0; margin-bottom: 1rem;">
-        共 {{ total }} 个模型 · 基于 ELO 评分系统排名 · 95% 置信区间
-    </p>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <p style="color: #a0a0c0;">
+            共 {{ total }} 个模型 · 基于 ELO 评分系统排名 · 95% 置信区间
+        </p>
+        <div>
+            <select id="category-filter" onchange="filterByCategory()" style="
+                background: #2a2a4a; color: #e0e0e0; border: 1px solid #3a3a5a;
+                padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.9rem;
+            ">
+                <option value="">全部分类</option>
+            </select>
+        </div>
+    </div>
 
     <table>
         <thead>
             <tr>
                 <th>#</th>
                 <th>模型</th>
+                <th>分类</th>
                 <th>Rating</th>
                 <th>95% CI</th>
                 <th>胜</th>
@@ -24,7 +35,7 @@
                 <th>胜率</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody id="leaderboard-body">
             {% for entry in entries %}
             <tr>
                 <td>
@@ -35,6 +46,7 @@
                     {% endif %}
                 </td>
                 <td><a href="/model/{{ entry.model_id }}" style="color: #e0e0e0; text-decoration: none; font-weight: 600;">{{ entry.name }}</a></td>
+                <td><span class="badge" style="background: #1a3a5c; color: #90caf9;">{{ entry.category }}</span></td>
                 <td class="rating">{{ "%.0f"|format(entry.rating) }}</td>
                 <td style="color: #666; font-size: 0.85rem;">{{ "%.0f"|format(entry.ci_lower) }} — {{ "%.0f"|format(entry.ci_upper) }}</td>
                 <td><span class="badge badge-w">{{ entry.wins }}</span></td>
@@ -46,7 +58,7 @@
             {% endfor %}
             {% if not entries %}
             <tr>
-                <td colspan="9" class="status">
+                <td colspan="10" class="status">
                     暂无数据。请先注册模型并进行对战。
                 </td>
             </tr>
@@ -59,10 +71,39 @@
     <h2 style="margin-bottom: 0.5rem;">📡 API 接口</h2>
     <p style="color: #a0a0c0; font-size: 0.9rem;">
         <code>GET /api/leaderboard</code> — JSON 格式排行榜<br>
-        <code>GET /api/leaderboard?limit=10&offset=0</code> — 分页查询<br>
+        <code>GET /api/leaderboard?category=coding</code> — 按分类过滤<br>
+        <code>GET /api/leaderboard/categories</code> — 列出所有分类<br>
         <code>GET /api/stats</code> — 平台统计数据<br>
         <code>GET /api/models/{id}/detail</code> — 模型详情<br>
         <code>GET /api/models/{a}/head-to-head/{b}</code> — Head-to-Head 对比
     </p>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadCategories() {
+    try {
+        const resp = await fetch('/api/leaderboard/categories');
+        const data = await resp.json();
+        const select = document.getElementById('category-filter');
+        data.categories.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat;
+            opt.textContent = cat;
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('Failed to load categories:', e);
+    }
+}
+
+function filterByCategory() {
+    const category = document.getElementById('category-filter').value;
+    const url = category ? `/leaderboard?category=${encodeURIComponent(category)}` : '/leaderboard';
+    window.location.href = url;
+}
+
+loadCategories();
+</script>
 {% endblock %}
