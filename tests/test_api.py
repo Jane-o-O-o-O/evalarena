@@ -288,7 +288,15 @@ async def test_model_detail(client: AsyncClient):
         "prompt": "q", "response_a": "a", "response_b": "b",
         "model_a_id": a, "model_b_id": b,
     })).json()
-    await client.post("/api/vote", json={"battle_id": battle["id"], "winner": "model_a"})
+
+    # Account for random A/B swap: check which position model-a ended up in
+    battle_detail = (await client.get(f"/api/arena/{battle['id']}")).json()
+    if battle_detail["model_a_name"] == "model-a":
+        vote_winner = "model_a"
+    else:
+        vote_winner = "model_b"
+
+    await client.post("/api/vote", json={"battle_id": battle["id"], "winner": vote_winner})
 
     r = await client.get(f"/api/models/{a}/detail")
     assert r.status_code == 200

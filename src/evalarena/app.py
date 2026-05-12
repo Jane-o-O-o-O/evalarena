@@ -58,6 +58,7 @@ def create_app(
     in_memory: bool = False,
     rate_limit: int = 60,
     rate_window: int = 60,
+    api_key: str | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -66,6 +67,8 @@ def create_app(
         in_memory: If True, use in-memory database (for testing).
         rate_limit: Max requests per window per IP. Default 60/min.
         rate_window: Rate limit window in seconds. Default 60.
+        api_key: If set, require this key for write operations (POST/PUT/DELETE).
+                 Clients must send X-API-Key header. GET requests are always public.
 
     Returns:
         Configured FastAPI instance.
@@ -101,18 +104,41 @@ def create_app(
                 )
         return await call_next(request)
 
+    # ── API key auth middleware ───────────────────────────────────────
+
+    if api_key:
+        WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+        @app.middleware("http")
+        async def api_key_middleware(request: Request, call_next):
+            """Require API key for write operations when configured."""
+            if (
+                request.url.path.startswith("/api/")
+                and request.method in WRITE_METHODS
+                and not request.url.path.startswith("/api/keys")
+            ):
+                provided = request.headers.get("X-API-Key", "")
+                if provided != api_key:
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Invalid or missing API key. Set X-API-Key header."},
+                    )
+            return await call_next(request)
+
     # Override get_db dependency in all route modules
     import evalarena.api.models as models_api
     import evalarena.api.arena as arena_api
     import evalarena.api.vote as vote_api
     import evalarena.api.leaderboard as lb_api
     import evalarena.api.stats as stats_api
+    import evalarena.api.keys as keys_api
 
     models_api.get_db = get_db
     arena_api.get_db = get_db
     vote_api.get_db = get_db
     lb_api.get_db = get_db
     stats_api.get_db = get_db
+    keys_api.get_db = get_db
 
     # Register routers
     from evalarena.api.models import router as models_router
@@ -120,12 +146,14 @@ def create_app(
     from evalarena.api.vote import router as vote_router
     from evalarena.api.leaderboard import router as leaderboard_router
     from evalarena.api.stats import router as stats_router
+    from evalarena.api.keys import router as keys_router
 
     app.include_router(models_router)
     app.include_router(arena_router)
     app.include_router(vote_router)
     app.include_router(leaderboard_router)
     app.include_router(stats_router)
+    app.include_router(keys_router)
 
     # Health check
     @app.get("/health")

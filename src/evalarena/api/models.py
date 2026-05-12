@@ -1,6 +1,6 @@
 """API routes for model management."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from evalarena.db.database import Database
 from evalarena.db.models import HeadToHead, ModelCreate, ModelDetail, ModelOut
@@ -19,15 +19,15 @@ async def create_model(data: ModelCreate) -> ModelOut:
     db = get_db()
     existing = await db.get_model_by_name(data.name)
     if existing:
-        raise HTTPException(status_code=409, detail=f"Model \'{data.name}\' already exists")
+        raise HTTPException(status_code=409, detail=f"Model '{data.name}' already exists")
     return await db.create_model(data)
 
 
 @router.get("", response_model=list[ModelOut])
-async def list_models() -> list[ModelOut]:
-    """List all registered models."""
+async def list_models(category: str | None = Query(None, description="Filter by category")) -> list[ModelOut]:
+    """List all registered models, optionally filtered by category."""
     db = get_db()
-    return await db.list_models()
+    return await db.list_models(category=category)
 
 
 @router.get("/{model_id}", response_model=ModelOut)
