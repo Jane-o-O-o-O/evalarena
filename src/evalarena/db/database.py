@@ -28,14 +28,17 @@ from evalarena.db.models import (
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS models (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE,
-    category    TEXT NOT NULL DEFAULT 'general',
-    rating      REAL NOT NULL DEFAULT 1000.0,
-    wins        INTEGER NOT NULL DEFAULT 0,
-    losses      INTEGER NOT NULL DEFAULT 0,
-    ties        INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    category        TEXT NOT NULL DEFAULT 'general',
+    description     TEXT NOT NULL DEFAULT '',
+    organization    TEXT NOT NULL DEFAULT '',
+    parameter_count TEXT NOT NULL DEFAULT '',
+    rating          REAL NOT NULL DEFAULT 1000.0,
+    wins            INTEGER NOT NULL DEFAULT 0,
+    losses          INTEGER NOT NULL DEFAULT 0,
+    ties            INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS battles (
@@ -93,6 +96,16 @@ class Database:
             )
         except Exception:
             pass  # Column already exists
+        # Migration: add model metadata columns
+        for col in [
+            "description TEXT NOT NULL DEFAULT ''",
+            "organization TEXT NOT NULL DEFAULT ''",
+            "parameter_count TEXT NOT NULL DEFAULT ''",
+        ]:
+            try:
+                await self._db.execute(f"ALTER TABLE models ADD COLUMN {col}")
+            except Exception:
+                pass  # Column already exists
         # Migration: add rating tracking columns to battles
         for col in [
             "model_a_rating_before REAL",
@@ -125,14 +138,19 @@ class Database:
         model_id = _uuid()
         now = _now()
         await self.db.execute(
-            "INSERT INTO models (id, name, category, rating, wins, losses, ties, created_at) VALUES (?, ?, ?, 1000.0, 0, 0, 0, ?)",
-            (model_id, data.name, data.category, now),
+            "INSERT INTO models (id, name, category, description, organization, parameter_count, "
+            "rating, wins, losses, ties, created_at) VALUES (?, ?, ?, ?, ?, ?, 1000.0, 0, 0, 0, ?)",
+            (model_id, data.name, data.category, data.description,
+             data.organization, data.parameter_count, now),
         )
         await self.db.commit()
         return ModelOut(
             id=model_id,
             name=data.name,
             category=data.category,
+            description=data.description,
+            organization=data.organization,
+            parameter_count=data.parameter_count,
             rating=1000.0,
             wins=0,
             losses=0,
@@ -192,10 +210,14 @@ class Database:
         total = row["wins"] + row["losses"] + row["ties"]
         wr = (row["wins"] / total * 100) if total > 0 else 0.0
         ci_lo, ci_hi = rating_confidence_interval(row["rating"], total)
+        keys = row.keys()
         return ModelOut(
             id=row["id"],
             name=row["name"],
-            category=row["category"] if "category" in row.keys() else "general",
+            category=row["category"] if "category" in keys else "general",
+            description=row["description"] if "description" in keys else "",
+            organization=row["organization"] if "organization" in keys else "",
+            parameter_count=row["parameter_count"] if "parameter_count" in keys else "",
             rating=row["rating"],
             wins=row["wins"],
             losses=row["losses"],
@@ -556,10 +578,14 @@ class Database:
             return None
 
         async with self.db.execute(
-            "SELECT created_at FROM models WHERE id = ?", (model_id,)
+            "SELECT created_at, description, organization, parameter_count FROM models WHERE id = ?",
+            (model_id,),
         ) as cur:
             row = await cur.fetchone()
             created_at = row[0] if row else ""
+            description = row[1] if row and len(row) > 1 else ""
+            organization = row[2] if row and len(row) > 2 else ""
+            parameter_count = row[3] if row and len(row) > 3 else ""
 
         recent_battles = await self.get_model_battles(model_id, limit=20)
 
@@ -567,6 +593,9 @@ class Database:
             id=model.id,
             name=model.name,
             category=model.category,
+            description=description,
+            organization=organization,
+            parameter_count=parameter_count,
             rating=model.rating,
             wins=model.wins,
             losses=model.losses,
@@ -655,3 +684,125 @@ class Database:
         )
         await self.db.commit()
         return True
+
+    # -- Search -----------------------------------------------------------
+
+    async def search_models(self, query: str, limit: int = 20) -> list[ModelOut]:
+        """Search models by name or organization.
+
+        Args:
+            query: Search string (partial match on name or organization).
+            limit: Max results to return.
+
+        Returns:
+            List of matching models sorted by rating.
+        """
+        pattern = f"%{query}%"
+        async with self.db.execute(
+            "SELECT * FROM models WHERE name LIKE ? OR organization LIKE ? "
+            "ORDER BY rating DESC LIMIT ?",
+            (pattern, pattern, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [self._row_to_model(r) for r in rows]
+
+    # -- Rating History ---------------------------------------------------
+
+    async def get_rating_history(
+        self, model_id: str, limit: int = 50
+    ) -> list["RatingHistoryEntry"]:
+        """Get the rating history for a model across its battles.
+
+        Returns a chronological list of rating snapshots after each battle.
+        """
+        from evalarena.db.models import RatingHistoryEntry
+
+        entries: list[RatingHistoryEntry] = []
+        async with self.db.execute(
+            "SELECT b.id, b.model_a_id, b.model_b_id, b.winner, b.created_at, "
+            "b.model_a_rating_after, b.model_b_rating_after, "
+            "b.model_a_rating_before, b.model_b_rating_before, "
+            "ma.name as name_a, mb.name as name_b "
+            "FROM battles b "
+            "JOIN models ma ON b.model_a_id = ma.id "
+            "JOIN models mb ON b.model_b_id = mb.id "
+            "WHERE (b.model_a_id = ? OR b.model_b_id = ?) AND b.winner IS NOT NULL "
+            "ORDER BY b.created_at ASC LIMIT ?",
+            (model_id, model_id, limit),
+        ) as cur:
+            async for row in cur:
+                is_model_a = row["model_a_id"] == model_id
+                opponent = row["name_b"] if is_model_a else row["name_a"]
+
+                if row["winner"] == "tie":
+                    result = "tie"
+                elif (row["winner"] == "model_a" and is_model_a) or (
+                    row["winner"] == "model_b" and not is_model_a
+                ):
+                    result = "win"
+                else:
+                    result = "loss"
+
+                if is_model_a:
+                    rating_after = row["model_a_rating_after"] or 1000.0
+                    rating_before = row["model_a_rating_before"] or 1000.0
+                else:
+                    rating_after = row["model_b_rating_after"] or 1000.0
+                    rating_before = row["model_b_rating_before"] or 1000.0
+
+                entries.append(
+                    RatingHistoryEntry(
+                        battle_id=row["id"],
+                        rating=round(rating_after, 1),
+                        rating_change=round(rating_after - rating_before, 1),
+                        opponent_name=opponent,
+                        result=result,
+                        created_at=row["created_at"],
+                    )
+                )
+        return entries
+
+    # -- Battle Details ---------------------------------------------------
+
+    async def get_battles_with_details(
+        self, limit: int = 30, offset: int = 0
+    ) -> list[dict]:
+        """Get battles with model names and results revealed.
+
+        Args:
+            limit: Max battles to return.
+            offset: Pagination offset.
+
+        Returns:
+            List of battle dicts with model names and winner info.
+        """
+        results: list[dict] = []
+        async with self.db.execute(
+            "SELECT b.*, ma.name as name_a, mb.name as name_b "
+            "FROM battles b "
+            "JOIN models ma ON b.model_a_id = ma.id "
+            "JOIN models mb ON b.model_b_id = mb.id "
+            "ORDER BY b.created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ) as cur:
+            async for row in cur:
+                winner_name = None
+                if row["winner"] == "model_a":
+                    winner_name = row["name_a"]
+                elif row["winner"] == "model_b":
+                    winner_name = row["name_b"]
+                elif row["winner"] == "tie":
+                    winner_name = "tie"
+
+                results.append(
+                    {
+                        "id": row["id"],
+                        "prompt": row["prompt"],
+                        "model_a_name": row["name_a"],
+                        "model_b_name": row["name_b"],
+                        "winner": row["winner"],
+                        "winner_name": winner_name,
+                        "created_at": row["created_at"],
+                    }
+                )
+        return results

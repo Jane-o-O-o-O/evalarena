@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Battles — EvalArena{% endblock %}
+{% block nav_battles %}active{% endblock %}
+
+{% block content %}
+<h1>⚔️ 对战历史</h1>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <p style="color: #a0a0c0;">
+            共 {{ total }} 场对战 · 显示第 {{ offset + 1 }}-{{ [offset + battles|length, total]|min }} 场
+        </p>
+        <div style="color: #a0a0c0; font-size: 0.9rem;">
+            <a href="/arena" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.3rem 0.8rem;">⚔️ 去投票</a>
+        </div>
+    </div>
+
+    {% if battles %}
+    <table>
+        <thead>
+            <tr>
+                <th>模型 A</th>
+                <th>模型 B</th>
+                <th>Prompt</th>
+                <th>结果</th>
+                <th>时间</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for b in battles %}
+            <tr>
+                <td style="font-weight: 600;">
+                    {% if b.winner == "model_a" %}
+                        <span style="color: #4CAF50;">🏆 {{ b.model_a_name }}</span>
+                    {% elif b.winner == "model_b" and b.model_a_name != b.winner_name %}
+                        <span style="color: #f44336;">{{ b.model_a_name }}</span>
+                    {% elif b.winner == "tie" %}
+                        <span style="color: #FF9800;">{{ b.model_a_name }}</span>
+                    {% elif b.winner is none %}
+                        <span style="color: #666;">{{ b.model_a_name }}</span>
+                    {% else %}
+                        <span style="color: #e0e0e0;">{{ b.model_a_name }}</span>
+                    {% endif %}
+                </td>
+                <td style="font-weight: 600;">
+                    {% if b.winner == "model_b" %}
+                        <span style="color: #4CAF50;">🏆 {{ b.model_b_name }}</span>
+                    {% elif b.winner == "model_a" %}
+                        <span style="color: #f44336;">{{ b.model_b_name }}</span>
+                    {% elif b.winner == "tie" %}
+                        <span style="color: #FF9800;">{{ b.model_b_name }}</span>
+                    {% elif b.winner is none %}
+                        <span style="color: #666;">{{ b.model_b_name }}</span>
+                    {% else %}
+                        <span style="color: #e0e0e0;">{{ b.model_b_name }}</span>
+                    {% endif %}
+                </td>
+                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    {{ b.prompt[:80] }}{% if b.prompt|length > 80 %}...{% endif %}
+                </td>
+                <td>
+                    {% if b.winner == "model_a" %}
+                        <span class="badge badge-w">{{ b.model_a_name }} 胜</span>
+                    {% elif b.winner == "model_b" %}
+                        <span class="badge badge-w">{{ b.model_b_name }} 胜</span>
+                    {% elif b.winner == "tie" %}
+                        <span class="badge badge-t">平局</span>
+                    {% else %}
+                        <span style="color: #666;">待投票</span>
+                    {% endif %}
+                </td>
+                <td style="color: #666; font-size: 0.85rem;">{{ b.created_at[:16] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
+        {% if has_prev %}
+        <a href="/battles?offset={{ [offset - limit, 0]|max }}&limit={{ limit }}" class="btn btn-secondary" style="font-size: 0.85rem;">← 上一页</a>
+        {% else %}
+        <span></span>
+        {% endif %}
+        {% if has_next %}
+        <a href="/battles?offset={{ offset + limit }}&limit={{ limit }}" class="btn btn-secondary" style="font-size: 0.85rem;">下一页 →</a>
+        {% else %}
+        <span></span>
+        {% endif %}
+    </div>
+    {% else %}
+    <p class="status">暂无对战记录。请先<a href="/arena">创建对战</a>。</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2 style="margin-bottom: 0.5rem;">📡 API 接口</h2>
+    <p style="color: #a0a0c0; font-size: 0.9rem;">
+        <code>GET /api/arena</code> — 盲评对战列表（不含模型身份）<br>
+        <code>GET /api/arena/{id}</code> — 对战详情（含模型身份）<br>
+        <code>GET /api/models/{id}/rating-history</code> — 模型评分历史<br>
+        <code>POST /api/vote</code> — 提交投票
+    </p>
+</div>
+{% endblock %}

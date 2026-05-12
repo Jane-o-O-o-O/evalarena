@@ -28,6 +28,21 @@ class ModelCreate(BaseModel):
         examples=["coding", "writing", "reasoning"],
         description="Evaluation category for grouped leaderboards",
     )
+    description: str = Field(
+        default="",
+        max_length=2000,
+        description="Model description or notes",
+    )
+    organization: str = Field(
+        default="",
+        max_length=200,
+        description="Organization or author that created the model",
+    )
+    parameter_count: str = Field(
+        default="",
+        max_length=50,
+        description="Parameter count, e.g. '7B', '70B', '1.5T'",
+    )
 
 
 class ModelOut(BaseModel):
@@ -36,6 +51,9 @@ class ModelOut(BaseModel):
     id: str
     name: str
     category: str = "general"
+    description: str = ""
+    organization: str = ""
+    parameter_count: str = ""
     rating: float
     wins: int
     losses: int
@@ -52,6 +70,9 @@ class ModelDetail(BaseModel):
     id: str
     name: str
     category: str = "general"
+    description: str = ""
+    organization: str = ""
+    parameter_count: str = ""
     rating: float
     wins: int
     losses: int
@@ -191,6 +212,17 @@ class StatsOut(BaseModel):
     lowest_rating: float
     most_active_model: str = ""
     battles_today: int = 0
+
+
+class RatingHistoryEntry(BaseModel):
+    """A single rating snapshot for a model after a battle."""
+
+    battle_id: str
+    rating: float
+    rating_change: float
+    opponent_name: str
+    result: str  # "win", "loss", "tie"
+    created_at: str
 
 
 # Resolve forward references
