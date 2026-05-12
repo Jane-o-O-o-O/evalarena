@@ -4,7 +4,6 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from evalarena import app as app_module
 from evalarena.app import create_app
 
 
@@ -15,7 +14,7 @@ async def client():
     Manually connects the database since ASGITransport doesn't fire lifespan events.
     """
     app = create_app(in_memory=True)
-    db = app_module._db
+    db = app.state.db
     await db.connect()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

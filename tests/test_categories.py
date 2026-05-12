@@ -4,7 +4,6 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from evalarena import app as app_module
 from evalarena.app import create_app
 
 
@@ -12,7 +11,7 @@ from evalarena.app import create_app
 async def client():
     """Async test client with in-memory database."""
     app = create_app(in_memory=True)
-    db = app_module._db
+    db = app.state.db
     await db.connect()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -24,7 +23,7 @@ async def client():
 async def authed_client():
     """Async test client with API key authentication enabled."""
     app = create_app(in_memory=True, api_key="test-secret-key")
-    db = app_module._db
+    db = app.state.db
     await db.connect()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

@@ -17,20 +17,10 @@ from fastapi.templating import Jinja2Templates
 
 from evalarena.db.database import Database
 
-# Shared database instance
-_db: Database | None = None
-
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 
-def get_db() -> Database:
-    """Get the shared database instance."""
-    if _db is None:
-        raise RuntimeError("Database not initialized")
-    return _db
-
-
-# ── Rate Limiter ──────────────────────────────────────────────────────
+# -- Rate Limiter -----------------------------------------------------------
 
 
 class RateLimiter:
@@ -45,7 +35,6 @@ class RateLimiter:
         """Check if a request from `key` is allowed."""
         now = time.time()
         cutoff = now - self.window
-        # Prune old entries
         self._requests[key] = [t for t in self._requests[key] if t > cutoff]
         if len(self._requests[key]) >= self.max_requests:
             return False
@@ -68,29 +57,35 @@ def create_app(
         rate_limit: Max requests per window per IP. Default 60/min.
         rate_window: Rate limit window in seconds. Default 60.
         api_key: If set, require this key for write operations (POST/PUT/DELETE).
-                 Clients must send X-API-Key header. GET requests are always public.
 
     Returns:
         Configured FastAPI instance.
     """
-    global _db
-    _db = Database(":memory:" if in_memory else db_path)
+    db = Database(":memory:" if in_memory else db_path)
     limiter = RateLimiter(max_requests=rate_limit, window_seconds=rate_window)
+
+    # Closure-based accessor -- no global variable needed
+    def get_db() -> Database:
+        """Get the shared database instance."""
+        return db
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        await _db.connect()
+        await db.connect()
         yield
-        await _db.close()
+        await db.close()
 
     app = FastAPI(
         title="EvalArena",
-        description="LLM 评估竞技场 — 盲评侧边对比，ELO 排行榜",
-        version="0.2.0",
+        description="LLM Evaluation Arena",
+        version="0.3.0",
         lifespan=lifespan,
     )
 
-    # ── Rate limiting middleware ───────────────────────────────────────
+    # Store reference on app state for external access (tests, middleware)
+    app.state.db = db
+
+    # -- Rate limiting middleware ------------------------------------------
 
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
@@ -104,7 +99,7 @@ def create_app(
                 )
         return await call_next(request)
 
-    # ── API key auth middleware ───────────────────────────────────────
+    # -- API key auth middleware -------------------------------------------
 
     if api_key:
         WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -125,7 +120,7 @@ def create_app(
                     )
             return await call_next(request)
 
-    # Override get_db dependency in all route modules
+    # Wire dependency injection in all route modules
     import evalarena.api.models as models_api
     import evalarena.api.arena as arena_api
     import evalarena.api.vote as vote_api
@@ -133,12 +128,8 @@ def create_app(
     import evalarena.api.stats as stats_api
     import evalarena.api.keys as keys_api
 
-    models_api.get_db = get_db
-    arena_api.get_db = get_db
-    vote_api.get_db = get_db
-    lb_api.get_db = get_db
-    stats_api.get_db = get_db
-    keys_api.get_db = get_db
+    for mod in [models_api, arena_api, vote_api, lb_api, stats_api, keys_api]:
+        mod.get_db = get_db
 
     # Register routers
     from evalarena.api.models import router as models_router
@@ -158,70 +149,63 @@ def create_app(
     # Health check
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.2.0"}
+        return {"status": "ok", "version": "0.3.0"}
 
     # Web UI routes (Jinja2 templates)
     if TEMPLATE_DIR.exists():
         templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
         @app.get("/", response_class=HTMLResponse)
-        async def index():
-            """Landing page -- redirect to arena."""
-            return '<html><head><meta http-equiv="refresh" content="0;url=/arena"></head></html>'
+        async def index(request: Request):
+            """Landing page with platform overview."""
+            stats = await db.get_stats()
+            leaderboard = await db.get_leaderboard(limit=5)
+            return templates.TemplateResponse(
+                request, "index.html", {"stats": stats, "leaderboard": leaderboard}
+            )
 
         @app.get("/arena", response_class=HTMLResponse)
         async def arena_page(request: Request):
             """Arena voting page."""
-            leaderboard = await _db.get_leaderboard(limit=10)
+            leaderboard = await db.get_leaderboard(limit=10)
             return templates.TemplateResponse(
-                "arena.html",
-                {
-                    "request": request,
-                    "leaderboard": leaderboard,
-                },
+                request, "arena.html", {"leaderboard": leaderboard}
             )
 
         @app.get("/leaderboard", response_class=HTMLResponse)
         async def leaderboard_page(request: Request, category: str | None = None):
             """Full leaderboard page."""
-            entries = await _db.get_leaderboard(limit=100, category=category)
+            entries = await db.get_leaderboard(limit=100, category=category)
+            categories = await db.list_categories()
             return templates.TemplateResponse(
+                request,
                 "leaderboard.html",
                 {
-                    "request": request,
                     "entries": entries,
                     "total": len(entries),
+                    "categories": categories,
+                    "selected_category": category,
                 },
             )
 
         @app.get("/model/{model_id}", response_class=HTMLResponse)
         async def model_detail_page(request: Request, model_id: str):
             """Model detail page with match history."""
-            detail = await _db.get_model_detail(model_id)
+            detail = await db.get_model_detail(model_id)
             if not detail:
                 return templates.TemplateResponse(
-                    "404.html",
-                    {"request": request, "message": "Model not found"},
-                    status_code=404,
+                    request, "404.html", {"message": "Model not found"}, status_code=404
                 )
             return templates.TemplateResponse(
-                "model_detail.html",
-                {
-                    "request": request,
-                    "model": detail,
-                },
+                request, "model_detail.html", {"model": detail}
             )
 
         @app.get("/compare", response_class=HTMLResponse)
         async def compare_page(request: Request):
             """Head-to-head comparison page."""
-            models = await _db.list_models()
+            models = await db.list_models()
             return templates.TemplateResponse(
-                "compare.html",
-                {
-                    "request": request,
-                    "models": models,
-                },
+                request, "compare.html", {"models": models}
             )
 
     return app
