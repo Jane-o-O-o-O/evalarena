@@ -208,4 +208,22 @@ def create_app(
                 request, "compare.html", {"models": models}
             )
 
+        @app.get("/battles", response_class=HTMLResponse)
+        async def battles_page(request: Request, limit: int = 30, offset: int = 0):
+            """Battle history page showing all past battles with results."""
+            battles = await db.get_battles_with_details(limit=limit, offset=offset)
+            total = await db.count_battles()
+            return templates.TemplateResponse(
+                request,
+                "battles.html",
+                {
+                    "battles": battles,
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "has_next": offset + limit < total,
+                    "has_prev": offset > 0,
+                },
+            )
+
     return app

@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Query
 
 from evalarena.db.database import Database
-from evalarena.db.models import HeadToHead, ModelCreate, ModelDetail, ModelOut
+from evalarena.db.models import HeadToHead, ModelCreate, ModelDetail, ModelOut, RatingHistoryEntry
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
@@ -24,10 +24,25 @@ async def create_model(data: ModelCreate) -> ModelOut:
 
 
 @router.get("", response_model=list[ModelOut])
-async def list_models(category: str | None = Query(None, description="Filter by category")) -> list[ModelOut]:
-    """List all registered models, optionally filtered by category."""
+async def list_models(
+    category: str | None = Query(None, description="Filter by category"),
+    search: str | None = Query(None, description="Search models by name or organization"),
+) -> list[ModelOut]:
+    """List all registered models, optionally filtered by category or search query."""
     db = get_db()
+    if search:
+        return await db.search_models(search)
     return await db.list_models(category=category)
+
+
+@router.get("/search")
+async def search_models(
+    q: str = Query(..., min_length=1, description="Search query"),
+    limit: int = Query(20, ge=1, le=100),
+) -> list[ModelOut]:
+    """Search models by name or organization."""
+    db = get_db()
+    return await db.search_models(q, limit=limit)
 
 
 @router.get("/{model_id}", response_model=ModelOut)
@@ -48,6 +63,21 @@ async def get_model_detail(model_id: str) -> ModelDetail:
     if not detail:
         raise HTTPException(status_code=404, detail="Model not found")
     return detail
+
+
+@router.get("/{model_id}/rating-history", response_model=list[RatingHistoryEntry])
+async def get_rating_history(
+    model_id: str, limit: int = Query(50, ge=1, le=200)
+) -> list[RatingHistoryEntry]:
+    """Get rating history for a model across its battles.
+
+    Returns chronological rating snapshots after each voted battle.
+    """
+    db = get_db()
+    model = await db.get_model(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return await db.get_rating_history(model_id, limit=limit)
 
 
 @router.get("/{model_id}/head-to-head/{other_id}", response_model=HeadToHead)

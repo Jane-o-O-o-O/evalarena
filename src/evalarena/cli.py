@@ -82,8 +82,11 @@ def export(fmt: str, output_path: str, db_path: str, category: str | None):
 @main.command()
 @click.argument("name")
 @click.option("--category", default="general", help="Model category (e.g., coding, writing, reasoning)")
+@click.option("--description", default="", help="Model description")
+@click.option("--organization", default="", help="Organization or author")
+@click.option("--params", "parameter_count", default="", help="Parameter count (e.g. 7B, 70B)")
 @click.option("--db", "db_path", default="evalarena.db", help="Database file path")
-def add_model(name: str, category: str, db_path: str):
+def add_model(name: str, category: str, description: str, organization: str, parameter_count: str, db_path: str):
     """Register a new model."""
     import asyncio
     from evalarena.db.database import Database
@@ -93,8 +96,15 @@ def add_model(name: str, category: str, db_path: str):
         db = Database(db_path)
         await db.connect()
         try:
-            model = await db.create_model(ModelCreate(name=name, category=category))
+            model = await db.create_model(ModelCreate(
+                name=name, category=category, description=description,
+                organization=organization, parameter_count=parameter_count,
+            ))
             click.echo(f"Added model: {model.name} (id={model.id}, category={model.category})")
+            if model.organization:
+                click.echo(f"  Organization: {model.organization}")
+            if model.parameter_count:
+                click.echo(f"  Parameters: {model.parameter_count}")
         except Exception as e:
             click.echo(f"Error: {e}", err=True)
         finally:
@@ -406,6 +416,96 @@ def head_to_head_cmd(model_a: str, model_b: str, db_path: str):
             await db.close()
 
     asyncio.run(_h2h())
+
+
+@main.command("delete-model")
+@click.argument("name")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
+def delete_model_cmd(name: str, db_path: str, yes: bool):
+    """Delete a model by name."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _delete():
+        db = Database(db_path)
+        await db.connect()
+        try:
+            model = await db.get_model_by_name(name)
+            if not model:
+                click.echo(f"Model '{name}' not found", err=True)
+                return
+            if not yes:
+                click.confirm(
+                    f"Delete model '{model.name}' (rating={model.rating:.0f}, "
+                    f"games={model.total_games})? This cannot be undone.",
+                    abort=True,
+                )
+            deleted = await db.delete_model(model.id)
+            if deleted:
+                click.echo(f"Deleted model: {model.name}")
+            else:
+                click.echo("Failed to delete model", err=True)
+        finally:
+            await db.close()
+
+    asyncio.run(_delete())
+
+
+@main.command("search-models")
+@click.argument("query")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+@click.option("--limit", default=20, type=int, help="Max results")
+def search_models_cmd(query: str, db_path: str, limit: int):
+    """Search models by name or organization."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _search():
+        db = Database(db_path)
+        await db.connect()
+        models = await db.search_models(query, limit=limit)
+        await db.close()
+
+        if not models:
+            click.echo(f"No models matching '{query}'.")
+            return
+
+        click.echo(f"Found {len(models)} model(s) matching '{query}':")
+        click.echo(f"{'Name':<25} {'Org':<20} {'Category':<15} {'Rating':>8} {'Games':>6}")
+        click.echo("-" * 80)
+        for m in models:
+            org = (m.organization[:17] + "...") if len(m.organization) > 17 else m.organization
+            click.echo(
+                f"{m.name:<25} {org:<20} {m.category:<15} {m.rating:>8.1f} {m.total_games:>6}"
+            )
+
+    asyncio.run(_search())
+
+
+@main.command("reset-db")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
+def reset_db_cmd(db_path: str, yes: bool):
+    """Delete all data and reinitialize the database."""
+    import asyncio
+    import os
+    from evalarena.db.database import Database
+
+    async def _reset():
+        if not yes:
+            click.confirm(
+                f"This will permanently delete all data in '{db_path}'. Continue?",
+                abort=True,
+            )
+        if os.path.exists(db_path):
+            os.remove(db_path)
+        db = Database(db_path)
+        await db.connect()
+        await db.close()
+        click.echo(f"Database reset: {db_path}")
+
+    asyncio.run(_reset())
 
 
 if __name__ == "__main__":
