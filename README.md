@@ -1,9 +1,24 @@
 # ⚔️ EvalArena
 
-> LLM 评估竞技场 — 盲评侧边对比模型评估，支持人类偏好评分（类似 LMSYS Chatbot Arena）
+**Self-hosted LLM evaluation arena — blind side-by-side comparison with ELO rankings.**
+
+> Like [LMSYS Chatbot Arena](https://chat.lmsys.org/), but runs on your own server. No data leaves your machine.
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-115%20passed-brightgreen.svg)]()
+[![PyPI](https://img.shields.io/pypi/v/evalarena?color=blue)](https://pypi.org/project/evalarena/)
+
+### Why EvalArena?
+
+| Feature | LMSYS Chatbot Arena | EvalArena |
+|---------|-------------------|-----------|
+| Self-hosted | ❌ | ✅ |
+| Private data | ❌ Public | ✅ Local SQLite |
+| Category leaderboards | ❌ | ✅ Coding / Writing / Reasoning |
+| Head-to-Head compare | ❌ | ✅ |
+| API access | Limited | ✅ Full REST API |
+| Custom models | ❌ | ✅ Register any model |
 
 ---
 
