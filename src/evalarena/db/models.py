@@ -21,6 +21,13 @@ class ModelCreate(BaseModel):
     """Request to register a new model."""
 
     name: str = Field(..., min_length=1, max_length=200, examples=["gpt-4o"])
+    category: str = Field(
+        default="general",
+        min_length=1,
+        max_length=50,
+        examples=["coding", "writing", "reasoning"],
+        description="Evaluation category for grouped leaderboards",
+    )
 
 
 class ModelOut(BaseModel):
@@ -28,6 +35,7 @@ class ModelOut(BaseModel):
 
     id: str
     name: str
+    category: str = "general"
     rating: float
     wins: int
     losses: int
@@ -43,6 +51,7 @@ class ModelDetail(BaseModel):
 
     id: str
     name: str
+    category: str = "general"
     rating: float
     wins: int
     losses: int
@@ -131,6 +140,7 @@ class LeaderboardEntry(BaseModel):
     rank: int
     model_id: str
     name: str
+    category: str = "general"
     rating: float
     wins: int
     losses: int

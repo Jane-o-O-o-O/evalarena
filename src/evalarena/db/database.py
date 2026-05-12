@@ -30,6 +30,7 @@ SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS models (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
+    category    TEXT NOT NULL DEFAULT 'general',
     rating      REAL NOT NULL DEFAULT 1000.0,
     wins        INTEGER NOT NULL DEFAULT 0,
     losses      INTEGER NOT NULL DEFAULT 0,
@@ -55,6 +56,13 @@ CREATE TABLE IF NOT EXISTS votes (
     voter_ip    TEXT,
     created_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    key         TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL
+);
 """
 
 
@@ -78,6 +86,13 @@ class Database:
         self._db = await aiosqlite.connect(self.db_path)
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(SCHEMA_SQL)
+        # Migration: add category column if upgrading from older schema
+        try:
+            await self._db.execute(
+                "ALTER TABLE models ADD COLUMN category TEXT NOT NULL DEFAULT 'general'"
+            )
+        except Exception:
+            pass  # Column already exists
         await self._db.commit()
 
     async def close(self) -> None:
@@ -99,13 +114,14 @@ class Database:
         model_id = _uuid()
         now = _now()
         await self.db.execute(
-            "INSERT INTO models (id, name, rating, wins, losses, ties, created_at) VALUES (?, ?, 1000.0, 0, 0, 0, ?)",
-            (model_id, data.name, now),
+            "INSERT INTO models (id, name, category, rating, wins, losses, ties, created_at) VALUES (?, ?, ?, 1000.0, 0, 0, 0, ?)",
+            (model_id, data.name, data.category, now),
         )
         await self.db.commit()
         return ModelOut(
             id=model_id,
             name=data.name,
+            category=data.category,
             rating=1000.0,
             wins=0,
             losses=0,
@@ -132,11 +148,17 @@ class Database:
                 return None
             return self._row_to_model(row)
 
-    async def list_models(self) -> list[ModelOut]:
-        """List all registered models."""
-        async with self.db.execute("SELECT * FROM models ORDER BY rating DESC") as cur:
-            rows = await cur.fetchall()
-            return [self._row_to_model(r) for r in rows]
+    async def list_models(self, category: str | None = None) -> list[ModelOut]:
+        """List all registered models, optionally filtered by category."""
+        if category:
+            async with self.db.execute(
+                "SELECT * FROM models WHERE category = ? ORDER BY rating DESC", (category,)
+            ) as cur:
+                rows = await cur.fetchall()
+        else:
+            async with self.db.execute("SELECT * FROM models ORDER BY rating DESC") as cur:
+                rows = await cur.fetchall()
+        return [self._row_to_model(r) for r in rows]
 
     async def delete_model(self, model_id: str) -> bool:
         """Delete a model. Returns True if found and deleted."""
@@ -162,6 +184,7 @@ class Database:
         return ModelOut(
             id=row["id"],
             name=row["name"],
+            category=row["category"] if "category" in row.keys() else "general",
             rating=row["rating"],
             wins=row["wins"],
             losses=row["losses"],
@@ -287,13 +310,21 @@ class Database:
 
     # -- Leaderboard -----------------------------------------------------
 
-    async def get_leaderboard(self, limit: int = 50, offset: int = 0) -> list[LeaderboardEntry]:
-        """Get ranked leaderboard."""
+    async def get_leaderboard(
+        self, limit: int = 50, offset: int = 0, category: str | None = None
+    ) -> list[LeaderboardEntry]:
+        """Get ranked leaderboard, optionally filtered by category."""
         entries: list[LeaderboardEntry] = []
         rank = offset + 1
-        async with self.db.execute(
-            "SELECT * FROM models ORDER BY rating DESC LIMIT ? OFFSET ?", (limit, offset)
-        ) as cur:
+        if category:
+            query = (
+                "SELECT * FROM models WHERE category = ? ORDER BY rating DESC LIMIT ? OFFSET ?"
+            )
+            params = (category, limit, offset)
+        else:
+            query = "SELECT * FROM models ORDER BY rating DESC LIMIT ? OFFSET ?"
+            params = (limit, offset)
+        async with self.db.execute(query, params) as cur:
             async for row in cur:
                 total = row["wins"] + row["losses"] + row["ties"]
                 wr = (row["wins"] / total * 100) if total > 0 else 0.0
@@ -303,6 +334,7 @@ class Database:
                         rank=rank,
                         model_id=row["id"],
                         name=row["name"],
+                        category=row["category"] if "category" in row.keys() else "general",
                         rating=round(row["rating"], 1),
                         wins=row["wins"],
                         losses=row["losses"],
@@ -315,6 +347,14 @@ class Database:
                 )
                 rank += 1
         return entries
+
+    async def list_categories(self) -> list[str]:
+        """List all distinct categories in use."""
+        async with self.db.execute(
+            "SELECT DISTINCT category FROM models ORDER BY category"
+        ) as cur:
+            rows = await cur.fetchall()
+            return [r["category"] for r in rows]
 
     async def count_models(self) -> int:
         """Total number of registered models."""
@@ -493,6 +533,7 @@ class Database:
         return ModelDetail(
             id=model.id,
             name=model.name,
+            category=model.category,
             rating=model.rating,
             wins=model.wins,
             losses=model.losses,
@@ -504,3 +545,80 @@ class Database:
             recent_battles=recent_battles,
             created_at=created_at,
         )
+
+    # -- API Keys ----------------------------------------------------------
+
+    async def create_api_key(self, key: str, name: str) -> str:
+        """Create a new API key.
+
+        Args:
+            key: The API key string.
+            name: Human-readable name/description for the key.
+
+        Returns:
+            The created key string.
+        """
+        now = _now()
+        await self.db.execute(
+            "INSERT INTO api_keys (key, name, active, created_at) VALUES (?, ?, 1, ?)",
+            (key, name, now),
+        )
+        await self.db.commit()
+        return key
+
+    async def validate_api_key(self, key: str) -> bool:
+        """Check if an API key is valid and active.
+
+        Args:
+            key: The API key to validate.
+
+        Returns:
+            True if the key exists and is active.
+        """
+        async with self.db.execute(
+            "SELECT active FROM api_keys WHERE key = ?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return False
+            return bool(row["active"])
+
+    async def list_api_keys(self) -> list[dict]:
+        """List all API keys (without exposing the actual key).
+
+        Returns:
+            List of dicts with name, active status, and created_at.
+        """
+        async with self.db.execute(
+            "SELECT key, name, active, created_at FROM api_keys ORDER BY created_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+            return [
+                {
+                    "key_prefix": r["key"][:8] + "...",
+                    "name": r["name"],
+                    "active": bool(r["active"]),
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]
+
+    async def deactivate_api_key(self, key: str) -> bool:
+        """Deactivate an API key.
+
+        Args:
+            key: The API key to deactivate.
+
+        Returns:
+            True if the key was found and deactivated.
+        """
+        async with self.db.execute(
+            "SELECT key FROM api_keys WHERE key = ?", (key,)
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await self.db.execute(
+            "UPDATE api_keys SET active = 0 WHERE key = ?", (key,)
+        )
+        await self.db.commit()
+        return True
