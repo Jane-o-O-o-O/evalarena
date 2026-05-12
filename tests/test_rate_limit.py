@@ -4,7 +4,6 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from evalarena import app as app_module
 from evalarena.app import create_app
 
 
@@ -12,7 +11,7 @@ from evalarena.app import create_app
 async def rate_limited_client():
     """Client with very low rate limit for testing."""
     app = create_app(in_memory=True, rate_limit=3, rate_window=60)
-    db = app_module._db
+    db = app.state.db
     await db.connect()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

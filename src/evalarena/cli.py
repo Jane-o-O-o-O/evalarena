@@ -343,5 +343,70 @@ def list_keys_cmd(db_path: str):
     asyncio.run(_list())
 
 
+@main.command()
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def stats(db_path: str):
+    """Show platform statistics."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _stats():
+        db = Database(db_path)
+        await db.connect()
+        s = await db.get_stats()
+        await db.close()
+
+        click.echo("EvalArena Platform Statistics")
+        click.echo("=" * 40)
+        click.echo(f"  Models:          {s.total_models}")
+        click.echo(f"  Battles:         {s.total_battles}")
+        click.echo(f"  Votes:           {s.total_votes}")
+        click.echo(f"  Avg Rating:      {s.avg_rating}")
+        click.echo(f"  Highest Rating:  {s.highest_rating}")
+        click.echo(f"  Lowest Rating:   {s.lowest_rating}")
+        click.echo(f"  Most Active:     {s.most_active_model or 'N/A'}")
+        click.echo(f"  Battles Today:   {s.battles_today}")
+
+    asyncio.run(_stats())
+
+
+@main.command("head-to-head")
+@click.argument("model_a")
+@click.argument("model_b")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def head_to_head_cmd(model_a: str, model_b: str, db_path: str):
+    """Compare two models head-to-head by name."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _h2h():
+        db = Database(db_path)
+        await db.connect()
+        try:
+            ma = await db.get_model_by_name(model_a)
+            mb = await db.get_model_by_name(model_b)
+            if not ma:
+                click.echo(f"Model '{model_a}' not found", err=True)
+                return
+            if not mb:
+                click.echo(f"Model '{model_b}' not found", err=True)
+                return
+
+            h = await db.head_to_head(ma.id, mb.id)
+
+            click.echo(f"{h.model_a} vs {h.model_b}")
+            click.echo("=" * 40)
+            click.echo(f"  {h.model_a} wins:   {h.model_a_wins}")
+            click.echo(f"  {h.model_b} wins:   {h.model_b_wins}")
+            click.echo(f"  Ties:         {h.ties}")
+            click.echo(f"  Total:        {h.total_battles}")
+            if h.total_battles > 0:
+                click.echo(f"  {h.model_a} win%: {h.model_a_win_rate}%")
+        finally:
+            await db.close()
+
+    asyncio.run(_h2h())
+
+
 if __name__ == "__main__":
     main()

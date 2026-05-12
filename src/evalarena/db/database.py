@@ -93,6 +93,17 @@ class Database:
             )
         except Exception:
             pass  # Column already exists
+        # Migration: add rating tracking columns to battles
+        for col in [
+            "model_a_rating_before REAL",
+            "model_b_rating_before REAL",
+            "model_a_rating_after REAL",
+            "model_b_rating_after REAL",
+        ]:
+            try:
+                await self._db.execute(f"ALTER TABLE battles ADD COLUMN {col}")
+            except Exception:
+                pass  # Column already exists
         await self._db.commit()
 
     async def close(self) -> None:
@@ -281,12 +292,23 @@ class Database:
         model_a = await self._get_rating(battle["model_a_id"])
         model_b = await self._get_rating(battle["model_b_id"])
 
+        # Snapshot ratings before update
+        a_before = model_a.rating
+        b_before = model_b.rating
+
         if data.winner == Winner.TIE:
             update_ratings(model_a, model_b, data.battle_id, is_tie=True)
         elif data.winner == Winner.MODEL_A:
             update_ratings(model_a, model_b, data.battle_id)
         else:
             update_ratings(model_b, model_a, data.battle_id)
+
+        # Store rating changes in battle record
+        await self.db.execute(
+            "UPDATE battles SET model_a_rating_before = ?, model_b_rating_before = ?, "
+            "model_a_rating_after = ?, model_b_rating_after = ? WHERE id = ?",
+            (a_before, b_before, model_a.rating, model_b.rating, data.battle_id),
+        )
 
         await self._update_model_rating(battle["model_a_id"], model_a)
         await self._update_model_rating(battle["model_b_id"], model_b)
@@ -401,6 +423,7 @@ class Database:
 
                 if row["winner"] is None:
                     result = "pending"
+                    rating_change = 0.0
                 elif row["winner"] == "tie":
                     result = "tie"
                 elif (row["winner"] == "model_a" and is_model_a) or (
@@ -410,13 +433,23 @@ class Database:
                 else:
                     result = "loss"
 
+                # Compute rating change from stored before/after values
+                if row["winner"] is not None:
+                    rating_change = 0.0
+                    keys = row.keys()
+                    if "model_a_rating_before" in keys and row["model_a_rating_before"] is not None:
+                        if is_model_a:
+                            rating_change = round(row["model_a_rating_after"] - row["model_a_rating_before"], 1)
+                        else:
+                            rating_change = round(row["model_b_rating_after"] - row["model_b_rating_before"], 1)
+
                 summaries.append(
                     BattleSummary(
                         id=row["id"],
                         prompt=prompt_short,
                         opponent_name=opponent_name,
                         result=result,
-                        rating_change=0.0,  # TODO: compute from ELO
+                        rating_change=rating_change,
                         created_at=row["created_at"],
                     )
                 )

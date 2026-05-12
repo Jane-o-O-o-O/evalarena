@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}EvalArena — LLM Evaluation Arena{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>⚔️ EvalArena</h1>
+    <p class="subtitle">LLM 评估竞技场 — 盲评侧边对比，ELO 排行榜</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_models }}</div>
+        <div class="stat-label">Models</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_battles }}</div>
+        <div class="stat-label">Battles</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_votes }}</div>
+        <div class="stat-label">Votes</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.avg_rating }}</div>
+        <div class="stat-label">Avg Rating</div>
+    </div>
+</div>
+
+<div class="nav-actions">
+    <a href="/arena" class="btn btn-primary">⚔️ Enter Arena</a>
+    <a href="/leaderboard" class="btn">🏆 Leaderboard</a>
+    <a href="/compare" class="btn">🔍 Compare Models</a>
+</div>
+
+{% if leaderboard %}
+<div class="section">
+    <h2>Top 5 Models</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Model</th>
+                <th>Category</th>
+                <th>Rating</th>
+                <th>Win%</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in leaderboard %}
+            <tr>
+                <td>{{ entry.rank }}</td>
+                <td><a href="/model/{{ entry.model_id }}">{{ entry.name }}</a></td>
+                <td><span class="tag">{{ entry.category }}</span></td>
+                <td>{{ "%.1f"|format(entry.rating) }}</td>
+                <td>{{ "%.1f"|format(entry.win_rate) }}%</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<style>
+    .hero {
+        text-align: center;
+        padding: 2rem 0;
+    }
+    .hero h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+    .subtitle { color: #888; font-size: 1.1rem; }
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+        margin: 2rem 0;
+    }
+    .stat-card {
+        background: #1a1a2e;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 1.5rem;
+        text-align: center;
+    }
+    .stat-value { font-size: 2rem; font-weight: bold; color: #00d4ff; }
+    .stat-label { color: #888; margin-top: 0.5rem; }
+    .nav-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        margin: 2rem 0;
+    }
+    .btn {
+        display: inline-block;
+        padding: 0.75rem 1.5rem;
+        border-radius: 6px;
+        text-decoration: none;
+        background: #1a1a2e;
+        color: #ccc;
+        border: 1px solid #333;
+        transition: all 0.2s;
+    }
+    .btn:hover { border-color: #00d4ff; color: #00d4ff; }
+    .btn-primary { background: #0d3b66; border-color: #00d4ff; color: #00d4ff; }
+    .section { margin-top: 2rem; }
+    .tag {
+        background: #1a2a3a;
+        color: #00d4ff;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+</style>
+{% endblock %}
