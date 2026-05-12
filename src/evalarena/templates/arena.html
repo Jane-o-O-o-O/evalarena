@@ -38,6 +38,23 @@
     </div>
     <div id="vote-result" style="display:none;">
         <div class="flash flash-success" id="vote-result-text"></div>
+        <div id="reveal-section" style="display:none; margin-top: 1rem;">
+            <h3 style="color: #00d4ff; margin-bottom: 1rem;">🎭 模型揭晓</h3>
+            <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 1rem;">
+                <div class="card" style="margin-bottom: 0; text-align: center;">
+                    <div style="color: #a0a0c0; font-size: 0.85rem;">🅰️ 模型 A</div>
+                    <div id="reveal-name-a" style="font-size: 1.2rem; font-weight: 700; color: #4CAF50; margin: 0.5rem 0;"></div>
+                    <div id="reveal-rating-a" style="color: #00d4ff;"></div>
+                </div>
+                <div class="vs">VS</div>
+                <div class="card" style="margin-bottom: 0; text-align: center;">
+                    <div style="color: #a0a0c0; font-size: 0.85rem;">🅱️ 模型 B</div>
+                    <div id="reveal-name-b" style="font-size: 1.2rem; font-weight: 700; color: #2196F3; margin: 0.5rem 0;"></div>
+                    <div id="reveal-rating-b" style="color: #00d4ff;"></div>
+                </div>
+            </div>
+            <div id="reveal-winner" style="text-align: center; margin-top: 1rem; font-size: 1.1rem;"></div>
+        </div>
         <div style="text-align: center; margin-top: 1rem;">
             <button class="btn btn-primary" onclick="loadBattle()">下一题 →</button>
         </div>
@@ -51,6 +68,7 @@
             <tr>
                 <th>#</th>
                 <th>模型</th>
+                <th>分类</th>
                 <th>Rating</th>
                 <th>95% CI</th>
                 <th>W</th>
@@ -69,6 +87,7 @@
                     {% endif %}
                 </td>
                 <td><a href="/model/{{ entry.model_id }}" style="color: #e0e0e0; text-decoration: none;">{{ entry.name }}</a></td>
+                <td><span class="badge" style="background: #1a3a5c; color: #90caf9;">{{ entry.category }}</span></td>
                 <td class="rating">{{ "%.0f"|format(entry.rating) }}</td>
                 <td style="color: #666; font-size: 0.85rem;">{{ "%.0f"|format(entry.ci_lower) }}-{{ "%.0f"|format(entry.ci_upper) }}</td>
                 <td><span class="badge badge-w">{{ entry.wins }}</span></td>
@@ -77,7 +96,7 @@
             </tr>
             {% endfor %}
             {% if not leaderboard %}
-            <tr><td colspan="7" class="status">暂无数据</td></tr>
+            <tr><td colspan="8" class="status">暂无数据</td></tr>
             {% endif %}
         </tbody>
     </table>
@@ -98,6 +117,7 @@ async function loadBattle() {
     document.getElementById('battle-content').style.display = 'none';
     document.getElementById('no-battles').style.display = 'none';
     document.getElementById('vote-result').style.display = 'none';
+    document.getElementById('reveal-section').style.display = 'none';
     document.getElementById('message').innerHTML = '';
 
     try {
@@ -139,6 +159,9 @@ async function vote(winner) {
             const labels = {'model_a': 'A 更好', 'model_b': 'B 更好', 'tie': '平局'};
             document.getElementById('vote-result-text').textContent =
                 '✅ 投票成功！你选择了: ' + labels[winner] + '。ELO 评分已更新。';
+
+            // Reveal model identities
+            await revealModels();
         } else {
             const err = await resp.json();
             showMessage('error', '❌ ' + (err.detail || '投票失败'));
@@ -147,6 +170,42 @@ async function vote(winner) {
     } catch (e) {
         showMessage('error', '❌ 网络错误: ' + e.message);
         btns.forEach(b => b.disabled = false);
+    }
+}
+
+async function revealModels() {
+    try {
+        const resp = await fetch('/api/arena/' + currentBattleId);
+        if (!resp.ok) return;
+        const detail = await resp.json();
+
+        document.getElementById('reveal-name-a').textContent = detail.model_a_name;
+        document.getElementById('reveal-name-b').textContent = detail.model_b_name;
+
+        // Fetch ratings
+        const modelsResp = await fetch('/api/models');
+        const models = await modelsResp.json();
+        const modelA = models.find(m => m.name === detail.model_a_name);
+        const modelB = models.find(m => m.name === detail.model_b_name);
+
+        if (modelA) document.getElementById('reveal-rating-a').textContent = 'Rating: ' + Math.round(modelA.rating);
+        if (modelB) document.getElementById('reveal-rating-b').textContent = 'Rating: ' + Math.round(modelB.rating);
+
+        // Show winner
+        let winnerText = '';
+        if (detail.winner === 'model_a') {
+            winnerText = '🏆 胜者: ' + detail.model_a_name;
+        } else if (detail.winner === 'model_b') {
+            winnerText = '🏆 胜者: ' + detail.model_b_name;
+        } else if (detail.winner === 'tie') {
+            winnerText = '🤝 平局';
+        }
+        document.getElementById('reveal-winner').innerHTML =
+            '<span style="color: #00d4ff; font-weight: 700;">' + winnerText + '</span>';
+
+        document.getElementById('reveal-section').style.display = 'block';
+    } catch (e) {
+        console.error('Failed to reveal models:', e);
     }
 }
 

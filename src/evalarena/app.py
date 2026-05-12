@@ -182,9 +182,9 @@ def create_app(
             )
 
         @app.get("/leaderboard", response_class=HTMLResponse)
-        async def leaderboard_page(request: Request):
+        async def leaderboard_page(request: Request, category: str | None = None):
             """Full leaderboard page."""
-            entries = await _db.get_leaderboard(limit=100)
+            entries = await _db.get_leaderboard(limit=100, category=category)
             return templates.TemplateResponse(
                 "leaderboard.html",
                 {
