@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-115%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-190%20passed-brightgreen.svg)]()
 [![PyPI](https://img.shields.io/pypi/v/evalarena?color=blue)](https://pypi.org/project/evalarena/)
 
 ### Why EvalArena?
@@ -19,6 +19,8 @@
 | Head-to-Head compare | ❌ | ✅ |
 | API access | Limited | ✅ Full REST API |
 | Custom models | ❌ | ✅ Register any model |
+| LLM auto-sampling | ❌ | ✅ OpenAI / Anthropic |
+| Docker deploy | ❌ | ✅ One command |
 
 ---
 
@@ -76,23 +78,45 @@ EvalArena 是一个 LLM 评估竞技场，提供盲评侧边对比（blind side-
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/api/models` | GET/POST | 模型管理（支持 `?category=` 过滤） |
-| `/api/models/{id}` | GET/DELETE | 模型详情/删除 |
+| `/api/models/{id}` | GET/PUT/DELETE | 模型详情/更新/删除 |
 | `/api/models/{id}/detail` | GET | 模型详情+对战历史 |
 | `/api/models/{a}/head-to-head/{b}` | GET | Head-to-Head 对比 |
 | `/api/arena` | GET/POST | 创建/查看对战 |
+| `/api/arena/auto-battle` | POST | **LLM自动对战**（调用Provider API） |
 | `/api/arena/{id}` | GET | 对战详情（含模型身份） |
 | `/api/arena/random/pair` | GET | 随机选择两个模型 |
-| `/api/vote` | POST | 提交投票 |
+| `/api/vote` | POST | 提交投票（IP去重） |
 | `/api/leaderboard` | GET | 排行榜（支持 `?category=` 过滤） |
 | `/api/leaderboard/categories` | GET | 列出所有分类 |
 | `/api/stats` | GET | 平台统计数据 |
 | `/api/keys` | GET/POST | API 密钥管理 |
+| `/api/providers` | GET | LLM Provider状态 |
 | `/health` | GET | 健康检查 |
 
 ### 🔒 API 安全
 - 滑动窗口速率限制（默认 60 次/分钟）
 - 可选 API 密钥认证（`--api-key` 参数启用）
 - 仅限制 API 端点，不影响 Web UI
+
+### 🤖 LLM Provider 集成
+- 抽象 Provider 接口，支持任何 LLM API
+- 内置 OpenAI（GPT-4o 等）和 Anthropic（Claude 等）适配器
+- Mock Provider 用于测试和开发
+- 自动对战：`POST /api/arena/auto-battle` 自动调用两个模型的 API 生成回答
+- 配置方式：设置 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` 环境变量
+- 为模型设置 `provider` 和 `api_model_id` 字段即可启用自动对战
+
+### 🐳 Docker 部署
+```bash
+# 一键启动
+docker compose up -d
+
+# 带环境变量
+OPENAI_API_KEY=sk-xxx docker compose up -d
+
+# 自定义端口
+docker compose run -p 9090:8080 evalarena
+```
 
 ## 🛠️ 技术栈
 
@@ -114,12 +138,19 @@ evalarena/
 │   ├── app.py                # FastAPI 应用工厂 + 速率限制 + API密钥认证
 │   ├── cli.py                # CLI 入口 (click)
 │   ├── api/                  # API 路由
-│   │   ├── models.py         # 模型管理 + 详情 + H2H
-│   │   ├── arena.py          # 竞技场对战
-│   │   ├── vote.py           # 投票
+│   │   ├── models.py         # 模型管理 + 详情 + H2H + 更新
+│   │   ├── arena.py          # 竞技场对战 + 自动对战
+│   │   ├── vote.py           # 投票（IP去重）
 │   │   ├── leaderboard.py    # 排行榜 + 分类
 │   │   ├── stats.py          # 平台统计
-│   │   └── keys.py           # API 密钥管理
+│   │   ├── keys.py           # API 密钥管理
+│   │   └── providers.py      # LLM Provider 状态
+│   ├── providers/            # LLM Provider 集成
+│   │   ├── base.py           # 抽象接口 + LLMResponse
+│   │   ├── registry.py       # Provider 注册表
+│   │   ├── openai_provider.py # OpenAI 适配器
+│   │   ├── anthropic_provider.py # Anthropic 适配器
+│   │   └── mock_provider.py  # 测试用 Mock Provider
 │   ├── core/
 │   │   └── elo.py            # ELO 评分算法 + 置信区间
 │   ├── db/
@@ -168,10 +199,16 @@ evalarena list-models --category coding
 
 ```bash
 # 模型管理
-evalarena add-model <name> [--category <category>]
+evalarena add-model <name> [--category <category>] [--provider <provider>] [--api-model-id <id>]
+evalarena update-model <name> [--new-name <name>] [--category <cat>] [--provider <prov>]
 evalarena list-models [--category <category>]
+evalarena search-models <query>
+evalarena delete-model <name> [--yes]
 evalarena import-models models.json [--category general]
 evalarena import-models models.csv
+
+# LLM Provider
+evalarena providers                    # 列出所有 Provider 及配置状态
 
 # 对战和投票
 evalarena battle <model_a> <model_b> --prompt "..." --response-a "..." --response-b "..."
@@ -193,23 +230,37 @@ evalarena serve [--api-key KEY]
 ### API 使用示例
 
 ```bash
-# 注册模型（带分类）
+# 注册模型（带分类和Provider）
 curl -X POST http://localhost:8080/api/models \
   -H "Content-Type: application/json" \
-  -d '{"name": "GPT-4o", "category": "coding"}'
+  -d '{"name": "GPT-4o", "category": "coding", "provider": "openai", "api_model_id": "gpt-4o"}'
+
+# 更新模型信息
+curl -X PUT http://localhost:8080/api/models/xxx \
+  -H "Content-Type: application/json" \
+  -d '{"category": "reasoning", "description": "Updated description"}'
 
 # 批量导入
 curl -X POST http://localhost:8080/api/models \
   -H "Content-Type: application/json" \
-  -d '{"name": "Claude-3.5", "category": "writing"}'
+  -d '{"name": "Claude-3.5", "category": "writing", "provider": "anthropic", "api_model_id": "claude-3-5-sonnet-20241022"}'
 
-# 创建对战
+# 创建对战（手动提供回答）
 curl -X POST http://localhost:8080/api/arena \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "什么是递归？",
     "response_a": "递归是函数调用自身...",
     "response_b": "递归是一种编程技术...",
+    "model_a_id": "xxx",
+    "model_b_id": "yyy"
+  }'
+
+# 自动对战（LLM API 自动生成回答）
+curl -X POST http://localhost:8080/api/arena/auto-battle \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "什么是递归？",
     "model_a_id": "xxx",
     "model_b_id": "yyy"
   }'
