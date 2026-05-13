@@ -596,5 +596,177 @@ def providers_cmd():
         click.echo(f"{p['name']:<15} {status:>12}")
 
 
+# -- Prompt Template Commands -----------------------------------------------
+
+
+@main.command("add-template")
+@click.argument("name")
+@click.option("--prompt", "prompt_text", required=True, help="The prompt text")
+@click.option("--category", default="general", help="Template category")
+@click.option("--description", default="", help="Brief description")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def add_template(name: str, prompt_text: str, category: str, description: str, db_path: str):
+    """Create a new prompt template."""
+    import asyncio
+    from evalarena.db.database import Database
+    from evalarena.db.models import PromptTemplateCreate
+
+    async def _add():
+        db = Database(db_path)
+        await db.connect()
+        try:
+            template = await db.create_prompt_template(PromptTemplateCreate(
+                name=name, prompt_text=prompt_text,
+                category=category, description=description,
+            ))
+            click.echo(f"Added template: {template.name} (id={template.id}, category={template.category})")
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+        finally:
+            await db.close()
+
+    asyncio.run(_add())
+
+
+@main.command("list-templates")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+@click.option("--category", default=None, help="Filter by category")
+def list_templates_cmd(db_path: str, category: str | None):
+    """List all prompt templates."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _list():
+        db = Database(db_path)
+        await db.connect()
+        templates = await db.list_prompt_templates(category=category)
+        await db.close()
+
+        if not templates:
+            click.echo("No prompt templates found.")
+            return
+
+        click.echo(f"{'Name':<30} {'Category':<15} {'Uses':>5} {'Prompt Preview':<40}")
+        click.echo("-" * 95)
+        for t in templates:
+            preview = t.prompt_text[:37] + "..." if len(t.prompt_text) > 37 else t.prompt_text
+            click.echo(f"{t.name:<30} {t.category:<15} {t.usage_count:>5} {preview:<40}")
+
+    asyncio.run(_list())
+
+
+@main.command("delete-template")
+@click.argument("name")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+@click.option("--yes", is_flag=True, help="Skip confirmation")
+def delete_template_cmd(name: str, db_path: str, yes: bool):
+    """Delete a prompt template by name."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _delete():
+        db = Database(db_path)
+        await db.connect()
+        try:
+            template = await db.get_prompt_template_by_name(name)
+            if not template:
+                click.echo(f"Template '{name}' not found", err=True)
+                return
+            if not yes:
+                click.confirm(f"Delete template '{template.name}'?", abort=True)
+            deleted = await db.delete_prompt_template(template.id)
+            if deleted:
+                click.echo(f"Deleted template: {template.name}")
+        finally:
+            await db.close()
+
+    asyncio.run(_delete())
+
+
+@main.command("export-battles")
+@click.option("--output", "output_path", default="battles_export.json", help="Output file path")
+@click.option("--format", "fmt", default="json", type=click.Choice(["json", "csv"]))
+@click.option("--limit", default=1000, type=int, help="Max battles to export")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def export_battles(output_path: str, fmt: str, limit: int, db_path: str):
+    """Export battle data with votes and comments."""
+    import asyncio
+    import json
+    import csv
+    from evalarena.db.database import Database
+
+    async def _export():
+        db = Database(db_path)
+        await db.connect()
+        battles = await db.export_battles(limit=limit)
+        await db.close()
+
+        if fmt == "json":
+            with open(output_path, "w") as f:
+                json.dump(battles, f, indent=2, ensure_ascii=False)
+        else:
+            if battles:
+                with open(output_path, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=battles[0].keys())
+                    writer.writeheader()
+                    for b in battles:
+                        writer.writerow(b)
+
+        click.echo(f"Exported {len(battles)} battles -> {output_path}")
+
+    asyncio.run(_export())
+
+
+@main.command("random-battle")
+@click.option("--template", "template_name", default=None, help="Use a prompt template by name")
+@click.option("--prompt", default=None, help="Custom prompt (if no template)")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def random_battle_cmd(template_name: str | None, prompt: str | None, db_path: str):
+    """Create a random battle between two models with a prompt."""
+    import asyncio
+    import random
+    from evalarena.db.database import Database
+    from evalarena.db.models import BattleCreate
+
+    async def _random():
+        if not template_name and not prompt:
+            click.echo("Provide --template or --prompt", err=True)
+            return
+
+        db = Database(db_path)
+        await db.connect()
+        try:
+            actual_prompt = prompt
+            if template_name:
+                template = await db.get_prompt_template_by_name(template_name)
+                if not template:
+                    click.echo(f"Template '{template_name}' not found", err=True)
+                    return
+                actual_prompt = template.prompt_text
+                await db.increment_template_usage(template.id)
+
+            models = await db.list_models()
+            if len(models) < 2:
+                click.echo("Need at least 2 models registered", err=True)
+                return
+
+            pair = random.sample(models, 2)
+            click.echo(f"Random pair: {pair[0].name} vs {pair[1].name}")
+            click.echo(f"Prompt: {actual_prompt[:80]}...")
+            click.echo()
+            click.echo("Provide responses (or use 'evalarena serve' + auto-battle API):")
+            click.echo(f"  Model A ({pair[0].name}): enter response text")
+            click.echo(f"  Model B ({pair[1].name}): enter response text")
+            click.echo()
+            click.echo("For auto-battle, use:")
+            click.echo(f'  curl -X POST http://localhost:8080/api/arena/auto-battle \\')
+            click.echo(f'    -H "Content-Type: application/json" \\')
+            click.echo(f'    -d \'{{"prompt": "{actual_prompt[:50]}...", "model_a_id": "{pair[0].id}", "model_b_id": "{pair[1].id}"}}\'')
+        finally:
+            await db.close()
+
+    asyncio.run(_random())
+
+
 if __name__ == "__main__":
     main()

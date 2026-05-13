@@ -1,4 +1,8 @@
-"""API routes for voting."""
+"""API routes for voting.
+
+Supports optional vote comments for qualitative feedback alongside
+the binary/tie choice.
+"""
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -17,7 +21,8 @@ async def submit_vote(data: VoteCreate, request: Request) -> VoteOut:
     """Submit a vote for a battle.
 
     Each battle can only be voted on once per IP address. Voting triggers
-    ELO rating updates for both models.
+    ELO rating updates for both models. An optional ``comment`` field allows
+    voters to explain their reasoning.
     """
     db = get_db()
     voter_ip = request.client.host if request.client else None
@@ -37,5 +42,6 @@ async def submit_vote(data: VoteCreate, request: Request) -> VoteOut:
         id="recorded",
         battle_id=data.battle_id,
         winner=data.winner.value,
+        comment=getattr(data, "comment", "") or "",
         created_at=battle["created_at"] if battle else "",
     )
