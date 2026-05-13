@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS models (
     description     TEXT NOT NULL DEFAULT '',
     organization    TEXT NOT NULL DEFAULT '',
     parameter_count TEXT NOT NULL DEFAULT '',
+    provider        TEXT NOT NULL DEFAULT '',
+    api_model_id    TEXT NOT NULL DEFAULT '',
     rating          REAL NOT NULL DEFAULT 1000.0,
     wins            INTEGER NOT NULL DEFAULT 0,
     losses          INTEGER NOT NULL DEFAULT 0,
@@ -101,6 +103,8 @@ class Database:
             "description TEXT NOT NULL DEFAULT ''",
             "organization TEXT NOT NULL DEFAULT ''",
             "parameter_count TEXT NOT NULL DEFAULT ''",
+            "provider TEXT NOT NULL DEFAULT ''",
+            "api_model_id TEXT NOT NULL DEFAULT ''",
         ]:
             try:
                 await self._db.execute(f"ALTER TABLE models ADD COLUMN {col}")
@@ -139,9 +143,11 @@ class Database:
         now = _now()
         await self.db.execute(
             "INSERT INTO models (id, name, category, description, organization, parameter_count, "
-            "rating, wins, losses, ties, created_at) VALUES (?, ?, ?, ?, ?, ?, 1000.0, 0, 0, 0, ?)",
+            "provider, api_model_id, rating, wins, losses, ties, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1000.0, 0, 0, 0, ?)",
             (model_id, data.name, data.category, data.description,
-             data.organization, data.parameter_count, now),
+             data.organization, data.parameter_count, data.provider,
+             data.api_model_id, now),
         )
         await self.db.commit()
         return ModelOut(
@@ -151,6 +157,8 @@ class Database:
             description=data.description,
             organization=data.organization,
             parameter_count=data.parameter_count,
+            provider=data.provider,
+            api_model_id=data.api_model_id,
             rating=1000.0,
             wins=0,
             losses=0,
@@ -198,6 +206,45 @@ class Database:
         await self.db.commit()
         return True
 
+    async def update_model(self, model_id: str, data: "ModelUpdate") -> ModelOut | None:
+        """Update a model's metadata fields.
+
+        Only non-None fields in ``data`` are updated.
+
+        Args:
+            model_id: The model to update.
+            data: Partial update data.
+
+        Returns:
+            Updated ModelOut, or None if model not found.
+        """
+        from evalarena.db.models import ModelUpdate
+
+        existing = await self.get_model(model_id)
+        if not existing:
+            return None
+
+        # Build SET clause from non-None fields
+        updates: list[str] = []
+        params: list = []
+        for field_name in [
+            "name", "category", "description", "organization",
+            "parameter_count", "provider", "api_model_id",
+        ]:
+            value = getattr(data, field_name, None)
+            if value is not None:
+                updates.append(f"{field_name} = ?")
+                params.append(value)
+
+        if not updates:
+            return existing  # Nothing to update
+
+        params.append(model_id)
+        sql = f"UPDATE models SET {', '.join(updates)} WHERE id = ?"
+        await self.db.execute(sql, params)
+        await self.db.commit()
+        return await self.get_model(model_id)
+
     async def _update_model_rating(self, model_id: str, rating: ModelRating) -> None:
         """Update a model\'s ELO stats in the database."""
         await self.db.execute(
@@ -218,6 +265,8 @@ class Database:
             description=row["description"] if "description" in keys else "",
             organization=row["organization"] if "organization" in keys else "",
             parameter_count=row["parameter_count"] if "parameter_count" in keys else "",
+            provider=row["provider"] if "provider" in keys else "",
+            api_model_id=row["api_model_id"] if "api_model_id" in keys else "",
             rating=row["rating"],
             wins=row["wins"],
             losses=row["losses"],
@@ -290,6 +339,7 @@ class Database:
         """Submit a vote and update ELO ratings.
 
         Returns True if the vote was recorded. Returns False if battle already voted on.
+        Raises ValueError if battle not found or IP already voted.
         """
         # Check battle exists and hasn't been voted on
         battle = await self.get_battle(data.battle_id)
@@ -297,6 +347,15 @@ class Database:
             raise ValueError(f"Battle {data.battle_id} not found")
         if battle["winner"] is not None:
             return False
+
+        # Prevent duplicate voting from same IP on same battle
+        if voter_ip:
+            async with self.db.execute(
+                "SELECT id FROM votes WHERE battle_id = ? AND voter_ip = ?",
+                (data.battle_id, voter_ip),
+            ) as cur:
+                if await cur.fetchone():
+                    raise ValueError("You have already voted on this battle")
 
         vote_id = _uuid()
         now = _now()

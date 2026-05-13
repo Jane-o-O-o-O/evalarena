@@ -43,6 +43,31 @@ class ModelCreate(BaseModel):
         max_length=50,
         description="Parameter count, e.g. '7B', '70B', '1.5T'",
     )
+    provider: str = Field(
+        default="",
+        max_length=50,
+        description="LLM provider name for auto-sampling (e.g. 'openai', 'anthropic')",
+    )
+    api_model_id: str = Field(
+        default="",
+        max_length=200,
+        description="Model identifier for the LLM provider API (e.g. 'gpt-4o')",
+    )
+
+
+class ModelUpdate(BaseModel):
+    """Request to update an existing model's metadata.
+
+    All fields are optional -- only provided fields are updated.
+    """
+
+    name: str | None = Field(None, min_length=1, max_length=200)
+    category: str | None = Field(None, min_length=1, max_length=50)
+    description: str | None = Field(None, max_length=2000)
+    organization: str | None = Field(None, max_length=200)
+    parameter_count: str | None = Field(None, max_length=50)
+    provider: str | None = Field(None, max_length=50)
+    api_model_id: str | None = Field(None, max_length=200)
 
 
 class ModelOut(BaseModel):
@@ -54,6 +79,8 @@ class ModelOut(BaseModel):
     description: str = ""
     organization: str = ""
     parameter_count: str = ""
+    provider: str = ""
+    api_model_id: str = ""
     rating: float
     wins: int
     losses: int
@@ -73,6 +100,8 @@ class ModelDetail(BaseModel):
     description: str = ""
     organization: str = ""
     parameter_count: str = ""
+    provider: str = ""
+    api_model_id: str = ""
     rating: float
     wins: int
     losses: int
@@ -199,6 +228,20 @@ class HeadToHead(BaseModel):
 
 
 # -- Stats ----------------------------------------------------------------
+
+
+class AutoBattleCreate(BaseModel):
+    """Request to create a battle by auto-sampling LLM responses.
+
+    Instead of providing pre-generated responses, the arena calls LLM provider
+    APIs to generate responses from both models for the given prompt.
+    """
+
+    prompt: str = Field(..., min_length=1, max_length=10000, examples=["Explain recursion."])
+    model_a_id: str = Field(..., min_length=1)
+    model_b_id: str = Field(..., min_length=1)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=2048, ge=1, le=32000)
 
 
 class StatsOut(BaseModel):

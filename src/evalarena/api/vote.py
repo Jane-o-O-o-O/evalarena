@@ -16,15 +16,18 @@ def get_db() -> Database:
 async def submit_vote(data: VoteCreate, request: Request) -> VoteOut:
     """Submit a vote for a battle.
 
-    Each battle can only be voted on once. Voting triggers ELO rating updates
-    for both models.
+    Each battle can only be voted on once per IP address. Voting triggers
+    ELO rating updates for both models.
     """
     db = get_db()
     voter_ip = request.client.host if request.client else None
     try:
         recorded = await db.create_vote(data, voter_ip=voter_ip)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        error_msg = str(e)
+        if "already voted" in error_msg:
+            raise HTTPException(status_code=409, detail=error_msg)
+        raise HTTPException(status_code=404, detail=error_msg)
 
     if not recorded:
         raise HTTPException(status_code=409, detail="This battle has already been voted on")
