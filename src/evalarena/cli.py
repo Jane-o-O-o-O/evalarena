@@ -768,5 +768,108 @@ def random_battle_cmd(template_name: str | None, prompt: str | None, db_path: st
     asyncio.run(_random())
 
 
+@main.command("seed-templates")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+@click.option("--category", default=None, help="Only seed templates for this category")
+def seed_templates_cmd(db_path: str, category: str | None):
+    """Load built-in prompt templates into the database.
+
+    Seeds templates for coding, writing, reasoning, math, and general categories.
+    Existing templates (by name) are skipped.
+    """
+    import asyncio
+    from evalarena.db.database import Database
+    from evalarena.seed_templates import get_seed_templates, get_seed_templates_by_category
+
+    async def _seed():
+        db = Database(db_path)
+        await db.connect()
+        if category:
+            templates = get_seed_templates_by_category(category)
+        else:
+            templates = get_seed_templates()
+
+        if not templates:
+            click.echo(f"No templates found{f' for category: {category}' if category else ''}.")
+            await db.close()
+            return
+
+        added, skipped = await db.seed_prompt_templates(templates)
+        await db.close()
+        click.echo(f"Seed templates loaded: {added} added, {skipped} skipped")
+        if category:
+            click.echo(f"  Category filter: {category}")
+
+    asyncio.run(_seed())
+
+
+@main.command("comparison-matrix")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def comparison_matrix_cmd(db_path: str):
+    """Show pairwise model comparison matrix."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _matrix():
+        db = Database(db_path)
+        await db.connect()
+        data = await db.get_comparison_matrix()
+        await db.close()
+
+        models = data["models"]
+        matrix = data["matrix"]
+
+        if not models:
+            click.echo("No models registered.")
+            return
+
+        click.echo(f"Models: {len(models)}")
+        click.echo(f"Comparison pairs: {len(matrix)}")
+        click.echo()
+
+        if not matrix:
+            click.echo("No battles between models yet.")
+            return
+
+        click.echo(f"{'Matchup':<45} {'W':>5} {'L':>5} {'T':>5} {'Win%':>7}")
+        click.echo("-" * 70)
+        for entry in sorted(matrix, key=lambda x: x["total"], reverse=True):
+            matchup = f"{entry['model_a_name']} vs {entry['model_b_name']}"
+            click.echo(
+                f"{matchup:<45} {entry['model_a_wins']:>5} {entry['model_b_wins']:>5} "
+                f"{entry['ties']:>5} {entry['model_a_win_rate']:>6.1f}%"
+            )
+
+    asyncio.run(_matrix())
+
+
+@main.command("category-stats")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def category_stats_cmd(db_path: str):
+    """Show per-category statistics."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _stats():
+        db = Database(db_path)
+        await db.connect()
+        stats = await db.get_category_stats()
+        await db.close()
+
+        if not stats:
+            click.echo("No categories found.")
+            return
+
+        click.echo(f"{'Category':<15} {'Models':>7} {'Avg Rating':>11} {'Highest':>9} {'Battles':>9} {'Votes':>7}")
+        click.echo("-" * 65)
+        for s in stats:
+            click.echo(
+                f"{s['category']:<15} {s['model_count']:>7} {s['avg_rating']:>11.1f} "
+                f"{s['highest_rating']:>9.1f} {s['total_battles']:>9} {s['total_votes']:>7}"
+            )
+
+    asyncio.run(_stats())
+
+
 if __name__ == "__main__":
     main()

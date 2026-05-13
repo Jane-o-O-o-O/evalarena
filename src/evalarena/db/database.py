@@ -1061,7 +1061,222 @@ class Database:
                 )
         return points
 
-    # -- Battle Export ------------------------------------------------------
+    # -- Vote Comments in Battles --------------------------------------------
+
+    async def get_battle_vote_comments(
+        self, battle_id: str
+    ) -> list[dict[str, str]]:
+        """Get all vote comments for a specific battle.
+
+        Args:
+            battle_id: The battle to get comments for.
+
+        Returns:
+            List of dicts with winner, comment, and created_at.
+        """
+        results: list[dict[str, str]] = []
+        async with self.db.execute(
+            "SELECT winner, comment, created_at FROM votes "
+            "WHERE battle_id = ? AND comment IS NOT NULL AND comment != '' "
+            "ORDER BY created_at ASC",
+            (battle_id,),
+        ) as cur:
+            async for row in cur:
+                results.append({
+                    "winner": row["winner"],
+                    "comment": row["comment"],
+                    "created_at": row["created_at"],
+                })
+        return results
+
+    async def get_battles_with_comments(
+        self, limit: int = 30, offset: int = 0
+    ) -> list[dict]:
+        """Get battles with model names, results, and vote comments.
+
+        Args:
+            limit: Max battles to return.
+            offset: Pagination offset.
+
+        Returns:
+            List of battle dicts with model names, winner, and comments.
+        """
+        results: list[dict] = []
+        async with self.db.execute(
+            "SELECT b.*, ma.name as name_a, mb.name as name_b "
+            "FROM battles b "
+            "JOIN models ma ON b.model_a_id = ma.id "
+            "JOIN models mb ON b.model_b_id = mb.id "
+            "WHERE b.winner IS NOT NULL "
+            "ORDER BY b.created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ) as cur:
+            async for row in cur:
+                winner_name = None
+                if row["winner"] == "model_a":
+                    winner_name = row["name_a"]
+                elif row["winner"] == "model_b":
+                    winner_name = row["name_b"]
+                elif row["winner"] == "tie":
+                    winner_name = "tie"
+
+                # Get comments for this battle
+                comments = await self.get_battle_vote_comments(row["id"])
+
+                results.append({
+                    "id": row["id"],
+                    "prompt": row["prompt"],
+                    "response_a": row["response_a"],
+                    "response_b": row["response_b"],
+                    "model_a_name": row["name_a"],
+                    "model_b_name": row["name_b"],
+                    "winner": row["winner"],
+                    "winner_name": winner_name,
+                    "comments": comments,
+                    "created_at": row["created_at"],
+                })
+        return results
+
+    # -- Category Stats -----------------------------------------------------
+
+    async def get_category_stats(self) -> list[dict]:
+        """Get per-category statistics.
+
+        Returns:
+            List of dicts with category, model_count, avg_rating, highest_rating,
+            total_battles, and total_votes.
+        """
+        results: list[dict] = []
+        async with self.db.execute(
+            "SELECT m.category, "
+            "COUNT(DISTINCT m.id) as model_count, "
+            "ROUND(AVG(m.rating), 1) as avg_rating, "
+            "ROUND(MAX(m.rating), 1) as highest_rating, "
+            "COUNT(DISTINCT b.id) as total_battles "
+            "FROM models m "
+            "LEFT JOIN battles b ON (b.model_a_id = m.id OR b.model_b_id = m.id) "
+            "GROUP BY m.category "
+            "ORDER BY model_count DESC"
+        ) as cur:
+            async for row in cur:
+                # Count votes for battles in this category
+                async with self.db.execute(
+                    "SELECT COUNT(v.id) FROM votes v "
+                    "JOIN battles b ON v.battle_id = b.id "
+                    "JOIN models m ON (b.model_a_id = m.id OR b.model_b_id = m.id) "
+                    "WHERE m.category = ?",
+                    (row["category"],),
+                ) as vote_cur:
+                    vote_row = await vote_cur.fetchone()
+                    total_votes = vote_row[0] if vote_row else 0
+
+                results.append({
+                    "category": row["category"],
+                    "model_count": row["model_count"],
+                    "avg_rating": row["avg_rating"],
+                    "highest_rating": row["highest_rating"],
+                    "total_battles": row["total_battles"],
+                    "total_votes": total_votes,
+                })
+        return results
+
+    # -- Comparison Matrix --------------------------------------------------
+
+    async def get_comparison_matrix(self) -> dict:
+        """Get a comparison matrix of all model pairs.
+
+        Returns:
+            Dict with 'models' (list of model summaries) and 'matrix' (pairwise H2H data).
+        """
+        models = await self.list_models()
+        model_summaries = [
+            {
+                "id": m.id,
+                "name": m.name,
+                "category": m.category,
+                "rating": m.rating,
+                "total_games": m.total_games,
+            }
+            for m in models
+        ]
+
+        matrix: list[dict] = []
+        seen_pairs: set[tuple[str, str]] = set()
+
+        for i, m_a in enumerate(models):
+            for j, m_b in enumerate(models):
+                if i >= j:
+                    continue
+                pair_key = tuple(sorted([m_a.id, m_b.id]))
+                if pair_key in seen_pairs:
+                    continue
+                seen_pairs.add(pair_key)
+
+                async with self.db.execute(
+                    "SELECT winner, model_a_id FROM battles "
+                    "WHERE ((model_a_id = ? AND model_b_id = ?) "
+                    "OR (model_a_id = ? AND model_b_id = ?)) "
+                    "AND winner IS NOT NULL",
+                    (m_a.id, m_b.id, m_b.id, m_a.id),
+                ) as cur:
+                    a_wins = 0
+                    b_wins = 0
+                    ties = 0
+                    async for row in cur:
+                        if row["winner"] == "tie":
+                            ties += 1
+                        elif (row["winner"] == "model_a" and row["model_a_id"] == m_a.id) or (
+                            row["winner"] == "model_b" and row["model_a_id"] == m_b.id
+                        ):
+                            a_wins += 1
+                        else:
+                            b_wins += 1
+
+                    total = a_wins + b_wins + ties
+                    if total > 0:
+                        matrix.append({
+                            "model_a_id": m_a.id,
+                            "model_a_name": m_a.name,
+                            "model_b_id": m_b.id,
+                            "model_b_name": m_b.name,
+                            "model_a_wins": a_wins,
+                            "model_b_wins": b_wins,
+                            "ties": ties,
+                            "total": total,
+                            "model_a_win_rate": round(a_wins / total * 100, 1),
+                        })
+
+        return {"models": model_summaries, "matrix": matrix}
+
+    # -- Seed Templates -----------------------------------------------------
+
+    async def seed_prompt_templates(self, templates: list[dict[str, str]]) -> tuple[int, int]:
+        """Bulk-insert seed prompt templates, skipping duplicates by name.
+
+        Args:
+            templates: List of dicts with name, prompt_text, category, description.
+
+        Returns:
+            Tuple of (added_count, skipped_count).
+        """
+        added = 0
+        skipped = 0
+        for t in templates:
+            existing = await self.get_prompt_template_by_name(t["name"])
+            if existing:
+                skipped += 1
+                continue
+            try:
+                await self.create_prompt_template(PromptTemplateCreate(
+                    name=t["name"],
+                    prompt_text=t["prompt_text"],
+                    category=t.get("category", "general"),
+                    description=t.get("description", ""),
+                ))
+                added += 1
+            except Exception:
+                skipped += 1
+        return added, skipped
 
     async def export_battles(self, limit: int = 1000) -> list[dict]:
         """Export battles with vote details for analysis.

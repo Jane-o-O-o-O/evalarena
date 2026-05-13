@@ -1,4 +1,8 @@
-"""API routes for platform statistics."""
+"""API routes for platform statistics.
+
+Includes aggregate stats, per-category breakdowns, and model
+comparison matrix.
+"""
 
 from fastapi import APIRouter
 
@@ -21,3 +25,25 @@ async def get_stats() -> StatsOut:
     """
     db = get_db()
     return await db.get_stats()
+
+
+@router.get("/categories")
+async def get_category_stats() -> list[dict]:
+    """Get per-category statistics.
+
+    Returns model count, average rating, highest rating,
+    total battles, and total votes for each category.
+    """
+    db = get_db()
+    return await db.get_category_stats()
+
+
+@router.get("/comparison-matrix")
+async def get_comparison_matrix() -> dict:
+    """Get a pairwise model comparison matrix.
+
+    Returns all models and their head-to-head records against each other.
+    Useful for building a comparison heatmap or matrix view.
+    """
+    db = get_db()
+    return await db.get_comparison_matrix()

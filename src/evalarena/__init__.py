@@ -1,3 +1,3 @@
 """EvalArena - LLM evaluation arena for side-by-side model comparison."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

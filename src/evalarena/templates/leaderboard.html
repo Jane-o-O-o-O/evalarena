@@ -3,19 +3,19 @@
 {% block nav_lb %}active{% endblock %}
 
 {% block content %}
-<h1>🏆 排行榜</h1>
+<h1 data-en="🏆 Leaderboard" data-zh="🏆 排行榜">🏆 排行榜</h1>
 
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <p style="color: #a0a0c0;">
-            共 {{ total }} 个模型 · 基于 ELO 评分系统排名 · 95% 置信区间
+            <span data-en="{{ total }} models" data-zh="共 {{ total }} 个模型">共 {{ total }} 个模型</span> · <span data-en="Ranked by ELO rating system" data-zh="基于 ELO 评分系统排名">基于 ELO 评分系统排名</span> · <span data-en="95% confidence interval" data-zh="95% 置信区间">95% 置信区间</span>
         </p>
         <div>
             <select id="category-filter" onchange="filterByCategory()" style="
                 background: #2a2a4a; color: #e0e0e0; border: 1px solid #3a3a5a;
                 padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.9rem;
             ">
-                <option value="">全部分类</option>
+                <option value=""><span data-en="All Categories" data-zh="全部分类">全部分类</span></option>
             </select>
         </div>
     </div>
@@ -59,7 +59,7 @@
             {% if not entries %}
             <tr>
                 <td colspan="10" class="status">
-                    暂无数据。请先注册模型并进行对战。
+                    <span data-en="No data yet. Register models and start battles first." data-zh="暂无数据。请先注册模型并进行对战。">暂无数据。请先注册模型并进行对战。</span>
                 </td>
             </tr>
             {% endif %}
