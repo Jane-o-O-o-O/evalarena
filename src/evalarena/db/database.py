@@ -13,6 +13,8 @@ import aiosqlite
 
 from evalarena.core.elo import ModelRating, update_ratings, rating_confidence_interval
 from evalarena.db.models import (
+    BatchBattleCreate,
+    BatchBattleOut,
     BattleCreate,
     BattleOut,
     BattleSummary,
@@ -21,6 +23,9 @@ from evalarena.db.models import (
     ModelCreate,
     ModelDetail,
     ModelOut,
+    PromptTemplateCreate,
+    PromptTemplateOut,
+    PromptTemplateUpdate,
     StatsOut,
     VoteCreate,
     Winner,
@@ -67,6 +72,16 @@ CREATE TABLE IF NOT EXISTS api_keys (
     name        TEXT NOT NULL,
     active      INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS prompt_templates (
+    id           TEXT PRIMARY KEY,
+    name         TEXT NOT NULL UNIQUE,
+    prompt_text  TEXT NOT NULL,
+    category     TEXT NOT NULL DEFAULT 'general',
+    description  TEXT NOT NULL DEFAULT '',
+    usage_count  INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL
 );
 """
 
@@ -121,6 +136,11 @@ class Database:
                 await self._db.execute(f"ALTER TABLE battles ADD COLUMN {col}")
             except Exception:
                 pass  # Column already exists
+        # Migration: add comment column to votes
+        try:
+            await self._db.execute("ALTER TABLE votes ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass  # Column already exists
         await self._db.commit()
 
     async def close(self) -> None:
@@ -360,10 +380,11 @@ class Database:
         vote_id = _uuid()
         now = _now()
 
-        # Record vote
+        # Record vote (with optional comment)
+        comment = getattr(data, "comment", "") or ""
         await self.db.execute(
-            "INSERT INTO votes (id, battle_id, winner, voter_ip, created_at) VALUES (?, ?, ?, ?, ?)",
-            (vote_id, data.battle_id, data.winner.value, voter_ip, now),
+            "INSERT INTO votes (id, battle_id, winner, voter_ip, comment, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (vote_id, data.battle_id, data.winner.value, voter_ip, comment, now),
         )
 
         # Mark battle winner
@@ -864,4 +885,210 @@ class Database:
                         "created_at": row["created_at"],
                     }
                 )
+        return results
+
+    # -- Prompt Templates ---------------------------------------------------
+
+    async def create_prompt_template(self, data: PromptTemplateCreate) -> PromptTemplateOut:
+        """Create a new prompt template."""
+        template_id = _uuid()
+        now = _now()
+        await self.db.execute(
+            "INSERT INTO prompt_templates (id, name, prompt_text, category, description, usage_count, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 0, ?)",
+            (template_id, data.name, data.prompt_text, data.category, data.description, now),
+        )
+        await self.db.commit()
+        return PromptTemplateOut(
+            id=template_id,
+            name=data.name,
+            prompt_text=data.prompt_text,
+            category=data.category,
+            description=data.description,
+            usage_count=0,
+            created_at=now,
+        )
+
+    async def get_prompt_template(self, template_id: str) -> PromptTemplateOut | None:
+        """Get a prompt template by ID."""
+        async with self.db.execute(
+            "SELECT * FROM prompt_templates WHERE id = ?", (template_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return None
+            return self._row_to_template(row)
+
+    async def get_prompt_template_by_name(self, name: str) -> PromptTemplateOut | None:
+        """Get a prompt template by name."""
+        async with self.db.execute(
+            "SELECT * FROM prompt_templates WHERE name = ?", (name,)
+        ) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return None
+            return self._row_to_template(row)
+
+    async def list_prompt_templates(
+        self, category: str | None = None
+    ) -> list[PromptTemplateOut]:
+        """List all prompt templates, optionally filtered by category."""
+        if category:
+            query = "SELECT * FROM prompt_templates WHERE category = ? ORDER BY usage_count DESC, name"
+            params = (category,)
+        else:
+            query = "SELECT * FROM prompt_templates ORDER BY usage_count DESC, name"
+            params = ()
+        async with self.db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+            return [self._row_to_template(r) for r in rows]
+
+    async def update_prompt_template(
+        self, template_id: str, data: PromptTemplateUpdate
+    ) -> PromptTemplateOut | None:
+        """Update a prompt template's metadata fields."""
+        existing = await self.get_prompt_template(template_id)
+        if not existing:
+            return None
+
+        updates: list[str] = []
+        params: list = []
+        for field_name in ["name", "prompt_text", "category", "description"]:
+            value = getattr(data, field_name, None)
+            if value is not None:
+                updates.append(f"{field_name} = ?")
+                params.append(value)
+
+        if not updates:
+            return existing
+
+        params.append(template_id)
+        sql = f"UPDATE prompt_templates SET {', '.join(updates)} WHERE id = ?"
+        await self.db.execute(sql, params)
+        await self.db.commit()
+        return await self.get_prompt_template(template_id)
+
+    async def delete_prompt_template(self, template_id: str) -> bool:
+        """Delete a prompt template. Returns True if found and deleted."""
+        async with self.db.execute(
+            "SELECT id FROM prompt_templates WHERE id = ?", (template_id,)
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await self.db.execute("DELETE FROM prompt_templates WHERE id = ?", (template_id,))
+        await self.db.commit()
+        return True
+
+    async def increment_template_usage(self, template_id: str) -> None:
+        """Increment usage counter for a prompt template."""
+        await self.db.execute(
+            "UPDATE prompt_templates SET usage_count = usage_count + 1 WHERE id = ?",
+            (template_id,),
+        )
+        await self.db.commit()
+
+    async def list_template_categories(self) -> list[str]:
+        """List all distinct prompt template categories."""
+        async with self.db.execute(
+            "SELECT DISTINCT category FROM prompt_templates ORDER BY category"
+        ) as cur:
+            rows = await cur.fetchall()
+            return [r["category"] for r in rows]
+
+    def _row_to_template(self, row: aiosqlite.Row) -> PromptTemplateOut:
+        """Convert a database row to a PromptTemplateOut."""
+        return PromptTemplateOut(
+            id=row["id"],
+            name=row["name"],
+            prompt_text=row["prompt_text"],
+            category=row["category"],
+            description=row["description"],
+            usage_count=row["usage_count"],
+            created_at=row["created_at"],
+        )
+
+    # -- Model Trends -------------------------------------------------------
+
+    async def get_model_trends(self, model_id: str, limit: int = 100) -> list:
+        """Get rating trend data for chart visualization.
+
+        Returns chronological rating snapshots with opponent info.
+        """
+        from evalarena.db.models import ModelTrendPoint
+
+        points: list[ModelTrendPoint] = []
+        async with self.db.execute(
+            "SELECT b.id, b.created_at, b.winner, b.model_a_id, b.model_b_id, "
+            "b.model_a_rating_before, b.model_a_rating_after, "
+            "b.model_b_rating_before, b.model_b_rating_after, "
+            "ma.name as name_a, mb.name as name_b "
+            "FROM battles b "
+            "JOIN models ma ON b.model_a_id = ma.id "
+            "JOIN models mb ON b.model_b_id = mb.id "
+            "WHERE (b.model_a_id = ? OR b.model_b_id = ?) AND b.winner IS NOT NULL "
+            "ORDER BY b.created_at ASC LIMIT ?",
+            (model_id, model_id, limit),
+        ) as cur:
+            async for row in cur:
+                is_model_a = row["model_a_id"] == model_id
+                opponent = row["name_b"] if is_model_a else row["name_a"]
+
+                if row["winner"] == "tie":
+                    result = "tie"
+                elif (row["winner"] == "model_a" and is_model_a) or (
+                    row["winner"] == "model_b" and not is_model_a
+                ):
+                    result = "win"
+                else:
+                    result = "loss"
+
+                if is_model_a:
+                    rating = row["model_a_rating_after"] or 1000.0
+                    rating_before = row["model_a_rating_before"] or 1000.0
+                else:
+                    rating = row["model_b_rating_after"] or 1000.0
+                    rating_before = row["model_b_rating_before"] or 1000.0
+
+                points.append(
+                    ModelTrendPoint(
+                        timestamp=row["created_at"],
+                        rating=round(rating, 1),
+                        battle_id=row["id"],
+                        opponent_name=opponent,
+                        result=result,
+                        rating_change=round(rating - rating_before, 1),
+                    )
+                )
+        return points
+
+    # -- Battle Export ------------------------------------------------------
+
+    async def export_battles(self, limit: int = 1000) -> list[dict]:
+        """Export battles with vote details for analysis.
+
+        Returns list of battle dicts with model names, winner, and vote info.
+        """
+        results: list[dict] = []
+        async with self.db.execute(
+            "SELECT b.*, ma.name as name_a, mb.name as name_b, "
+            "v.winner as vote_winner, v.voter_ip, v.comment as vote_comment, v.created_at as vote_time "
+            "FROM battles b "
+            "JOIN models ma ON b.model_a_id = ma.id "
+            "JOIN models mb ON b.model_b_id = mb.id "
+            "LEFT JOIN votes v ON b.id = v.battle_id "
+            "ORDER BY b.created_at DESC LIMIT ?",
+            (limit,),
+        ) as cur:
+            async for row in cur:
+                results.append({
+                    "id": row["id"],
+                    "prompt": row["prompt"],
+                    "response_a": row["response_a"],
+                    "response_b": row["response_b"],
+                    "model_a_name": row["name_a"],
+                    "model_b_name": row["name_b"],
+                    "winner": row["winner"],
+                    "vote_comment": row["vote_comment"] or "",
+                    "created_at": row["created_at"],
+                })
         return results

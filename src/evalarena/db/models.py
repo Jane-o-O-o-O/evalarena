@@ -268,5 +268,125 @@ class RatingHistoryEntry(BaseModel):
     created_at: str
 
 
+# -- Prompt Templates -------------------------------------------------------
+
+
+class PromptTemplateCreate(BaseModel):
+    """Request to create a prompt template."""
+
+    name: str = Field(..., min_length=1, max_length=200, examples=["Explain recursion"])
+    prompt_text: str = Field(..., min_length=1, max_length=10000, examples=["Explain recursion in simple terms."])
+    category: str = Field(
+        default="general",
+        min_length=1,
+        max_length=50,
+        description="Template category (e.g. coding, writing, reasoning, math, general)",
+    )
+    description: str = Field(
+        default="",
+        max_length=500,
+        description="Brief description of what this prompt tests",
+    )
+
+
+class PromptTemplateUpdate(BaseModel):
+    """Request to update a prompt template. All fields optional."""
+
+    name: str | None = Field(None, min_length=1, max_length=200)
+    prompt_text: str | None = Field(None, min_length=1, max_length=10000)
+    category: str | None = Field(None, min_length=1, max_length=50)
+    description: str | None = Field(None, max_length=500)
+
+
+class PromptTemplateOut(BaseModel):
+    """Prompt template returned from API."""
+
+    id: str
+    name: str
+    prompt_text: str
+    category: str
+    description: str
+    usage_count: int = 0
+    created_at: str
+
+
+# -- Batch Battles ---------------------------------------------------------
+
+
+class BatchBattleCreate(BaseModel):
+    """Request to create multiple battles at once.
+
+    Provide a list of prompts and a model pair. One battle is created
+    per prompt with auto-sampled responses from both models.
+    """
+
+    model_a_id: str = Field(..., min_length=1)
+    model_b_id: str = Field(..., min_length=1)
+    prompts: list[str] = Field(..., min_length=1, max_length=20, description="List of prompts (max 20)")
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=2048, ge=1, le=32000)
+
+
+class BatchBattleOut(BaseModel):
+    """Response for batch battle creation."""
+
+    battles_created: int
+    battle_ids: list[str]
+    model_a: str
+    model_b: str
+
+
+# -- Vote Comments ---------------------------------------------------------
+
+
+class VoteCreate(BaseModel):
+    """Request to submit a vote.
+
+    The optional ``comment`` field allows voters to explain their reasoning,
+    providing qualitative feedback alongside the binary choice.
+    """
+
+    battle_id: str = Field(..., min_length=1)
+    winner: Winner
+    comment: str = Field(
+        default="",
+        max_length=2000,
+        description="Optional reasoning for the vote choice",
+    )
+
+
+class VoteOut(BaseModel):
+    """Vote returned from API."""
+
+    id: str
+    battle_id: str
+    winner: str
+    comment: str = ""
+    created_at: str
+
+
+# -- Model Trends ----------------------------------------------------------
+
+
+class ModelTrendPoint(BaseModel):
+    """A single data point in a model's rating trend."""
+
+    timestamp: str
+    rating: float
+    battle_id: str
+    opponent_name: str
+    result: str
+    rating_change: float
+
+
+class ModelTrendOut(BaseModel):
+    """Model rating trend data for chart visualization."""
+
+    model_id: str
+    model_name: str
+    current_rating: float
+    points: list[ModelTrendPoint]
+
+
 # Resolve forward references
 ModelDetail.model_rebuild()

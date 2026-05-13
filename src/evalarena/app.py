@@ -78,7 +78,7 @@ def create_app(
     app = FastAPI(
         title="EvalArena",
         description="LLM Evaluation Arena",
-        version="0.4.0",
+        version="0.5.0",
         lifespan=lifespan,
     )
 
@@ -127,8 +127,10 @@ def create_app(
     import evalarena.api.leaderboard as lb_api
     import evalarena.api.stats as stats_api
     import evalarena.api.keys as keys_api
+    import evalarena.api.templates as templates_api
+    import evalarena.api.extras as extras_api
 
-    for mod in [models_api, arena_api, vote_api, lb_api, stats_api, keys_api]:
+    for mod in [models_api, arena_api, vote_api, lb_api, stats_api, keys_api, templates_api, extras_api]:
         mod.get_db = get_db
 
     # Register routers
@@ -139,6 +141,8 @@ def create_app(
     from evalarena.api.stats import router as stats_router
     from evalarena.api.keys import router as keys_router
     from evalarena.api.providers import router as providers_router
+    from evalarena.api.templates import router as templates_router
+    from evalarena.api.extras import router as extras_router
 
     app.include_router(models_router)
     app.include_router(arena_router)
@@ -147,6 +151,8 @@ def create_app(
     app.include_router(stats_router)
     app.include_router(keys_router)
     app.include_router(providers_router)
+    app.include_router(templates_router)
+    app.include_router(extras_router)
 
     # Register LLM providers (auto-discover from environment)
     from evalarena.providers import register_provider
@@ -161,7 +167,7 @@ def create_app(
     # Health check
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.4.0"}
+        return {"status": "ok", "version": "0.5.0"}
 
     # Web UI routes (Jinja2 templates)
     if TEMPLATE_DIR.exists():
@@ -237,5 +243,10 @@ def create_app(
                     "has_prev": offset > 0,
                 },
             )
+
+        @app.get("/auto-battle", response_class=HTMLResponse)
+        async def auto_battle_page(request: Request):
+            """Auto-battle page for LLM-powered blind comparison."""
+            return templates.TemplateResponse(request, "auto_battle.html", {})
 
     return app
