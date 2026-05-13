@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Query
 
 from evalarena.db.database import Database
-from evalarena.db.models import HeadToHead, ModelCreate, ModelDetail, ModelOut, RatingHistoryEntry
+from evalarena.db.models import HeadToHead, ModelCreate, ModelDetail, ModelOut, ModelUpdate, RatingHistoryEntry
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
@@ -96,3 +96,24 @@ async def delete_model(model_id: str) -> None:
     db = get_db()
     if not await db.delete_model(model_id):
         raise HTTPException(status_code=404, detail="Model not found")
+
+
+@router.put("/{model_id}", response_model=ModelOut)
+async def update_model(model_id: str, data: ModelUpdate) -> ModelOut:
+    """Update a model's metadata.
+
+    Only provided fields are updated. Returns the updated model.
+    """
+    db = get_db()
+    # Check for name conflict if renaming
+    if data.name:
+        existing = await db.get_model_by_name(data.name)
+        if existing and existing.id != model_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Model '{data.name}' already exists",
+            )
+    updated = await db.update_model(model_id, data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return updated

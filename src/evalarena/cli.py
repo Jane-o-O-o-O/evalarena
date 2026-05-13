@@ -508,5 +508,93 @@ def reset_db_cmd(db_path: str, yes: bool):
     asyncio.run(_reset())
 
 
+@main.command("update-model")
+@click.argument("name")
+@click.option("--new-name", default=None, help="New name for the model")
+@click.option("--category", default=None, help="New category")
+@click.option("--description", default=None, help="New description")
+@click.option("--organization", default=None, help="New organization")
+@click.option("--params", "parameter_count", default=None, help="New parameter count")
+@click.option("--provider", default=None, help="LLM provider name (e.g. openai, anthropic)")
+@click.option("--api-model-id", default=None, help="Model ID for the LLM provider API")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def update_model_cmd(
+    name: str,
+    new_name: str | None,
+    category: str | None,
+    description: str | None,
+    organization: str | None,
+    parameter_count: str | None,
+    provider: str | None,
+    api_model_id: str | None,
+    db_path: str,
+):
+    """Update a model's metadata by name."""
+    import asyncio
+    from evalarena.db.database import Database
+    from evalarena.db.models import ModelUpdate
+
+    async def _update():
+        db = Database(db_path)
+        await db.connect()
+        try:
+            model = await db.get_model_by_name(name)
+            if not model:
+                click.echo(f"Model '{name}' not found", err=True)
+                return
+
+            update_data = ModelUpdate(
+                name=new_name,
+                category=category,
+                description=description,
+                organization=organization,
+                parameter_count=parameter_count,
+                provider=provider,
+                api_model_id=api_model_id,
+            )
+            updated = await db.update_model(model.id, update_data)
+            if updated:
+                click.echo(f"Updated model: {updated.name}")
+                if new_name:
+                    click.echo(f"  Name: {name} -> {new_name}")
+                if category:
+                    click.echo(f"  Category: {updated.category}")
+                if provider:
+                    click.echo(f"  Provider: {updated.provider}")
+                if api_model_id:
+                    click.echo(f"  API Model ID: {updated.api_model_id}")
+            else:
+                click.echo("Failed to update model", err=True)
+        finally:
+            await db.close()
+
+    asyncio.run(_update())
+
+
+@main.command("providers")
+def providers_cmd():
+    """List available LLM providers and their configuration status."""
+    from evalarena.providers import list_providers
+    from evalarena.providers.mock_provider import MockProvider
+    from evalarena.providers.openai_provider import OpenAIProvider
+    from evalarena.providers.anthropic_provider import AnthropicProvider
+    from evalarena.providers import register_provider
+
+    register_provider(MockProvider())
+    register_provider(OpenAIProvider())
+    register_provider(AnthropicProvider())
+
+    providers = list_providers()
+    if not providers:
+        click.echo("No providers registered.")
+        return
+
+    click.echo(f"{'Provider':<15} {'Configured':>12}")
+    click.echo("-" * 30)
+    for p in providers:
+        status = "✓ Ready" if p["configured"] else "✗ No API key"
+        click.echo(f"{p['name']:<15} {status:>12}")
+
+
 if __name__ == "__main__":
     main()

@@ -1,0 +1,22 @@
+services:
+  evalarena:
+    build: .
+    container_name: evalarena
+    ports:
+      - "8080:8080"
+    volumes:
+      - evalarena-data:/data
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    # Uncomment to enable API key authentication:
+    # command: ["serve", "--host", "0.0.0.0", "--port", "8080", "--db", "/data/evalarena.db", "--api-key", "your-secret-key"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  evalarena-data:
