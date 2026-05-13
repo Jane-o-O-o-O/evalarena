@@ -140,3 +140,17 @@ async def get_model_trends(
         current_rating=model.rating,
         points=points,
     )
+
+
+@router.get("/api/battles/with-comments")
+async def get_battles_with_comments(
+    limit: int = Query(30, ge=1, le=100, description="Max battles"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+) -> list[dict]:
+    """Get voted battles with vote comments.
+
+    Returns battles that have been voted on, including any comments
+    left by voters explaining their reasoning.
+    """
+    db = get_db()
+    return await db.get_battles_with_comments(limit=limit, offset=offset)

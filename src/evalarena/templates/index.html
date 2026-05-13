@@ -1,47 +1,47 @@
 {% extends "base.html" %}
 
-{% block title %}EvalArena — LLM Evaluation Arena{% endblock %}
+{% block title %}EvalArena — LLM 盲测竞技场{% endblock %}
 
 {% block content %}
 <div class="hero">
     <h1>⚔️ EvalArena</h1>
-    <p class="subtitle">LLM 评估竞技场 — 盲评侧边对比，ELO 排行榜</p>
+    <p class="subtitle" data-en="LLM Evaluation Arena — Blind Side-by-Side Comparison with ELO Rankings" data-zh="LLM 评估竞技场 — 盲评侧边对比，ELO 排行榜">LLM 评估竞技场 — 盲评侧边对比，ELO 排行榜</p>
 </div>
 
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-value">{{ stats.total_models }}</div>
-        <div class="stat-label">Models</div>
+        <div class="stat-label" data-en="Models" data-zh="模型数">模型数</div>
     </div>
     <div class="stat-card">
         <div class="stat-value">{{ stats.total_battles }}</div>
-        <div class="stat-label">Battles</div>
+        <div class="stat-label" data-en="Battles" data-zh="对战场次">对战场次</div>
     </div>
     <div class="stat-card">
         <div class="stat-value">{{ stats.total_votes }}</div>
-        <div class="stat-label">Votes</div>
+        <div class="stat-label" data-en="Votes" data-zh="投票数">投票数</div>
     </div>
     <div class="stat-card">
         <div class="stat-value">{{ stats.avg_rating }}</div>
-        <div class="stat-label">Avg Rating</div>
+        <div class="stat-label" data-en="Avg Rating" data-zh="平均评分">平均评分</div>
     </div>
 </div>
 
 <div class="nav-actions">
-    <a href="/arena" class="btn btn-primary">⚔️ Enter Arena</a>
-    <a href="/leaderboard" class="btn">🏆 Leaderboard</a>
-    <a href="/compare" class="btn">🔍 Compare Models</a>
+    <a href="/arena" class="btn btn-primary" data-en="⚔️ Enter Arena" data-zh="⚔️ 进入竞技场">⚔️ 进入竞技场</a>
+    <a href="/leaderboard" class="btn" data-en="🏆 Leaderboard" data-zh="🏆 排行榜">🏆 排行榜</a>
+    <a href="/compare" class="btn" data-en="🔍 Compare Models" data-zh="🔍 模型对比">🔍 模型对比</a>
 </div>
 
 {% if leaderboard %}
 <div class="section">
-    <h2>Top 5 Models</h2>
+    <h2 data-en="Top 5 Models" data-zh="Top 5 模型">Top 5 模型</h2>
     <table>
         <thead>
             <tr>
-                <th>Rank</th>
-                <th>Model</th>
-                <th>Category</th>
+                <th data-en="Rank" data-zh="排名">排名</th>
+                <th data-en="Model" data-zh="模型">模型</th>
+                <th data-en="Category" data-zh="分类">分类</th>
                 <th>Rating</th>
                 <th>Win%</th>
             </tr>
@@ -62,10 +62,7 @@
 {% endif %}
 
 <style>
-    .hero {
-        text-align: center;
-        padding: 2rem 0;
-    }
+    .hero { text-align: center; padding: 2rem 0; }
     .hero h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
     .subtitle { color: #888; font-size: 1.1rem; }
     .stats-grid {
@@ -89,19 +86,6 @@
         justify-content: center;
         margin: 2rem 0;
     }
-    .btn {
-        display: inline-block;
-        padding: 0.75rem 1.5rem;
-        border-radius: 6px;
-        text-decoration: none;
-        background: #1a1a2e;
-        color: #ccc;
-        border: 1px solid #333;
-        transition: all 0.2s;
-    }
-    .btn:hover { border-color: #00d4ff; color: #00d4ff; }
-    .btn-primary { background: #0d3b66; border-color: #00d4ff; color: #00d4ff; }
-    .section { margin-top: 2rem; }
     .tag {
         background: #1a2a3a;
         color: #00d4ff;

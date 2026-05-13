@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Comparison Matrix — EvalArena{% endblock %}
+{% block nav_compare %}active{% endblock %}
+
+{% block content %}
+<h1>📊 <span data-en="Comparison Matrix" data-zh="对比矩阵">对比矩阵</span></h1>
+
+<div class="card">
+    <p style="color: #a0a0c0; margin-bottom: 1rem;">
+        <span data-en="Head-to-head results between all model pairs" data-zh="所有模型之间的逐对比较结果">所有模型之间的逐对比较结果</span>
+    </p>
+
+    {% if matrix %}
+    <table>
+        <thead>
+            <tr>
+                <th><span data-en="Matchup" data-zh="对阵">对阵</span></th>
+                <th style="text-align: center;"><span data-en="Wins A" data-zh="A 胜">A 胜</span></th>
+                <th style="text-align: center;"><span data-en="Wins B" data-zh="B 胜">B 胜</span></th>
+                <th style="text-align: center;"><span data-en="Ties" data-zh="平局">平局</span></th>
+                <th style="text-align: center;"><span data-en="Total" data-zh="总计">总计</span></th>
+                <th style="text-align: center;">Win Rate</th>
+                <th><span data-en="Win Bar" data-zh="胜率条">胜率条</span></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in matrix|sort(attribute='total', reverse=true) %}
+            <tr>
+                <td>
+                    <strong>{{ entry.model_a_name }}</strong>
+                    <span style="color: #666;"> vs </span>
+                    <strong>{{ entry.model_b_name }}</strong>
+                </td>
+                <td style="text-align: center; color: #4CAF50; font-weight: 600;">{{ entry.model_a_wins }}</td>
+                <td style="text-align: center; color: #f44336; font-weight: 600;">{{ entry.model_b_wins }}</td>
+                <td style="text-align: center; color: #FF9800;">{{ entry.ties }}</td>
+                <td style="text-align: center; color: #a0a0c0;">{{ entry.total }}</td>
+                <td style="text-align: center; font-weight: 600;">{{ "%.0f"|format(entry.model_a_win_rate) }}%</td>
+                <td style="min-width: 150px;">
+                    <div style="display: flex; height: 18px; border-radius: 4px; overflow: hidden; background: #0f0f1f;">
+                        {% set win_w = entry.model_a_win_rate %}
+                        {% set loss_w = (100 - win_w) %}
+                        {% if win_w > 0 %}
+                        <div style="width: {{ win_w }}%; background: #4CAF50;" title="{{ entry.model_a_name }} {{ win_w }}%"></div>
+                        {% endif %}
+                        {% if loss_w > 0 %}
+                        <div style="width: {{ loss_w }}%; background: #f44336;" title="{{ entry.model_b_name }} {{ loss_w }}%"></div>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="status"><span data-en="No comparison data yet. Create some battles first!" data-zh="暂无对比数据，请先创建一些对战！">暂无对比数据，请先创建一些对战！</span></p>
+    {% endif %}
+</div>
+
+<div class="card" style="border-left: 3px solid #333;">
+    <h2 style="margin-bottom: 0.5rem;">📡 API</h2>
+    <p style="color: #a0a0c0; font-size: 0.9rem;">
+        <code>GET /api/stats/comparison-matrix</code> — <span data-en="Comparison matrix data" data-zh="对比矩阵数据">对比矩阵数据</span><br>
+        <code>GET /api/models/{a}/head-to-head/{b}</code> — <span data-en="Specific pair comparison" data-zh="特定模型对比较">特定模型对比较</span>
+    </p>
+</div>
+{% endblock %}

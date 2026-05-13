@@ -78,7 +78,7 @@ def create_app(
     app = FastAPI(
         title="EvalArena",
         description="LLM Evaluation Arena",
-        version="0.5.0",
+        version="0.6.0",
         lifespan=lifespan,
     )
 
@@ -167,7 +167,7 @@ def create_app(
     # Health check
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.5.0"}
+        return {"status": "ok", "version": "0.6.0"}
 
     # Web UI routes (Jinja2 templates)
     if TEMPLATE_DIR.exists():
@@ -226,10 +226,23 @@ def create_app(
                 request, "compare.html", {"models": models}
             )
 
+        @app.get("/compare/matrix", response_class=HTMLResponse)
+        async def compare_matrix_page(request: Request):
+            """Pairwise comparison matrix for all models."""
+            data = await db.get_comparison_matrix()
+            return templates.TemplateResponse(
+                request,
+                "compare_matrix.html",
+                {
+                    "models": data["models"],
+                    "matrix": data["matrix"],
+                },
+            )
+
         @app.get("/battles", response_class=HTMLResponse)
         async def battles_page(request: Request, limit: int = 30, offset: int = 0):
-            """Battle history page showing all past battles with results."""
-            battles = await db.get_battles_with_details(limit=limit, offset=offset)
+            """Battle history page showing all past battles with results and comments."""
+            battles = await db.get_battles_with_comments(limit=limit, offset=offset)
             total = await db.count_battles()
             return templates.TemplateResponse(
                 request,

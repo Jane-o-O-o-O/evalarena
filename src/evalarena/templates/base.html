@@ -106,15 +106,40 @@
 <body>
     <nav>
         <span class="logo">⚔️ EvalArena</span>
-        <a href="/arena" class="{% block nav_arena %}{% endblock %}">Arena</a>
-        <a href="/auto-battle" class="{% block nav_auto %}{% endblock %}">🤖 Auto Battle</a>
-        <a href="/battles" class="{% block nav_battles %}{% endblock %}">Battles</a>
-        <a href="/leaderboard" class="{% block nav_lb %}{% endblock %}">Leaderboard</a>
-        <a href="/docs" target="_blank">API Docs</a>
+        <a href="/arena" class="{% block nav_arena %}{% endblock %}" data-en="Arena" data-zh="竞技场">竞技场</a>
+        <a href="/auto-battle" class="{% block nav_auto %}{% endblock %}" data-en="🤖 Auto Battle" data-zh="🤖 自动对战">🤖 自动对战</a>
+        <a href="/battles" class="{% block nav_battles %}{% endblock %}" data-en="Battles" data-zh="对战历史">对战历史</a>
+        <a href="/leaderboard" class="{% block nav_lb %}{% endblock %}" data-en="Leaderboard" data-zh="排行榜">排行榜</a>
+        <a href="/compare/matrix" class="{% block nav_compare %}{% endblock %}" data-en="📊 Matrix" data-zh="📊 对比矩阵">📊 对比矩阵</a>
+        <a href="/docs" target="_blank" data-en="API Docs" data-zh="API 文档">API 文档</a>
+        <button id="lang-toggle" onclick="toggleLang()" style="margin-left:auto; background:#2a2a4a; color:#a0a0c0; border:1px solid #3a3a5a; padding:0.3rem 0.8rem; border-radius:6px; cursor:pointer; font-size:0.85rem;">🌐 EN/中</button>
     </nav>
     <div class="container">
         {% block content %}{% endblock %}
     </div>
     {% block scripts %}{% endblock %}
+    <script>
+    (function() {
+        var lang = localStorage.getItem('lang') || 'zh';
+        applyLang(lang);
+    })();
+
+    function toggleLang() {
+        var current = localStorage.getItem('lang') || 'zh';
+        var next = current === 'zh' ? 'en' : 'zh';
+        localStorage.setItem('lang', next);
+        applyLang(next);
+    }
+
+    function applyLang(lang) {
+        document.querySelectorAll('[data-en][data-zh]').forEach(function(el) {
+            var text = el.getAttribute('data-' + lang);
+            if (text !== null) {
+                el.textContent = text;
+            }
+        });
+        document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    }
+    </script>
 </body>
 </html>

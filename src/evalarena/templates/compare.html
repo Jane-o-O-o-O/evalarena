@@ -2,20 +2,20 @@
 {% block title %}模型对比 — EvalArena{% endblock %}
 
 {% block content %}
-<h1>🔍 模型对比</h1>
+<h1 data-en="🔍 Model Comparison" data-zh="🔍 模型对比">🔍 模型对比</h1>
 
 <div class="card">
-    <h2 style="margin-bottom: 1rem;">选择两个模型进行 Head-to-Head 对比</h2>
+    <h2 style="margin-bottom: 1rem;" data-en="Select two models for Head-to-Head comparison" data-zh="选择两个模型进行 Head-to-Head 对比">选择两个模型进行 Head-to-Head 对比</h2>
     <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
         <select id="model-a" class="btn btn-secondary" style="flex: 1; min-width: 150px;">
-            <option value="">选择模型 A</option>
+            <option value=""><span data-en="Select Model A" data-zh="选择模型 A">选择模型 A</span></option>
             {% for m in models %}
             <option value="{{ m.id }}">{{ m.name }} ({{ "%.0f"|format(m.rating) }})</option>
             {% endfor %}
         </select>
         <span style="font-size: 1.5rem; color: #00d4ff;">VS</span>
         <select id="model-b" class="btn btn-secondary" style="flex: 1; min-width: 150px;">
-            <option value="">选择模型 B</option>
+            <option value=""><span data-en="Select Model B" data-zh="选择模型 B">选择模型 B</span></option>
             {% for m in models %}
             <option value="{{ m.id }}">{{ m.name }} ({{ "%.0f"|format(m.rating) }})</option>
             {% endfor %}
@@ -40,24 +40,24 @@ async function compare() {
     const a = document.getElementById('model-a').value;
     const b = document.getElementById('model-b').value;
     if (!a || !b) {
-        showError('请选择两个模型');
+        showError('' + (lang==='en'?'Please select two models':'请选择两个模型') + '');
         return;
     }
     if (a === b) {
-        showError('请选择不同的模型');
+        showError('' + (lang==='en'?'Please select different models':'请选择不同的模型') + '');
         return;
     }
     try {
         const resp = await fetch(`/api/models/${a}/head-to-head/${b}`);
         if (!resp.ok) {
             const err = await resp.json();
-            showError(err.detail || '对比失败');
+            showError(err.detail || '' + (lang==='en'?'Comparison failed':'对比失败') + '');
             return;
         }
         const data = await resp.json();
         showResult(data);
     } catch (e) {
-        showError('网络错误: ' + e.message);
+        showError('' + (lang==='en'?'Network error':'网络错误') + ': ' + e.message);
     }
 }
 

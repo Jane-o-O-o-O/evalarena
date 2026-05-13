@@ -9,10 +9,11 @@
         <span style="color: #90caf9; font-size: 0.95rem;">🏢 {{ model.organization }}</span>
         {% endif %}
         {% if model.parameter_count %}
-        <span style="color: #666; font-size: 0.95rem; margin-left: 1rem;">⚙️ {{ model.parameter_count }} 参数</span>
+        <span style="color: #666; font-size: 0.95rem; margin-left: 1rem;">⚙️ {{ model.parameter_count }} <span data-en="params" data-zh="参数">参数</span></span>
         {% endif %}
+        <span style="color: #555; font-size: 0.85rem; margin-left: 1rem;">{{ model.category }}</span>
     </div>
-    <a href="/leaderboard" class="btn btn-secondary">← 排行榜</a>
+    <a href="/leaderboard" class="btn btn-secondary"><span data-en="← Leaderboard" data-zh="← 排行榜">← 排行榜</span></a>
 </div>
 
 {% if model.description %}
@@ -28,15 +29,15 @@
         <div style="font-size: 0.8rem; color: #666;">± {{ "%.0f"|format((model.ci_upper - model.ci_lower) / 2) }}</div>
     </div>
     <div class="card" style="text-align: center;">
-        <div style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 0.3rem;">总场次</div>
+        <div style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 0.3rem;"><span data-en="Total Games" data-zh="总场次">总场次</span></div>
         <div style="font-size: 2rem; color: #fff;">{{ model.total_games }}</div>
     </div>
     <div class="card" style="text-align: center;">
-        <div style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 0.3rem;">胜率</div>
+        <div style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 0.3rem;"><span data-en="Win Rate" data-zh="胜率">胜率</span></div>
         <div style="font-size: 2rem; color: #4CAF50;">{{ "%.1f"|format(model.win_rate) }}%</div>
     </div>
     <div class="card" style="text-align: center;">
-        <div style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 0.3rem;">W / L / T</div>
+        <div style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 0.3rem;"><span data-en="W / L / T" data-zh="胜 / 负 / 平">W / L / T</span></div>
         <div style="font-size: 1.5rem;">
             <span style="color: #4CAF50;">{{ model.wins }}</span> /
             <span style="color: #f44336;">{{ model.losses }}</span> /
@@ -46,7 +47,7 @@
 </div>
 
 <div class="card">
-    <h2 style="margin-bottom: 1rem;">📈 Rating 区间</h2>
+    <h2 style="margin-bottom: 1rem;">📈 <span data-en="Rating Range" data-zh="Rating 区间">Rating 区间</span></h2>
     <div style="position: relative; height: 40px; background: #0f0f1f; border-radius: 8px; overflow: hidden;">
         {% set range_max = model.ci_upper + 50 %}
         {% set range_min = model.ci_lower - 50 %}
@@ -60,32 +61,31 @@
         <div style="position: absolute; bottom: 2px; right: {{ 100 - bar_left - bar_width }}%; font-size: 0.7rem; color: #666;">{{ "%.0f"|format(model.ci_upper) }}</div>
     </div>
     <p style="color: #a0a0c0; font-size: 0.85rem; margin-top: 0.5rem;">
-        95% 置信区间：{{ "%.0f"|format(model.ci_lower) }} — {{ "%.0f"|format(model.ci_upper) }}（基于 {{ model.total_games }} 场对战）
+        95% 置信区间：{{ "%.0f"|format(model.ci_lower) }} — {{ "%.0f"|format(model.ci_upper) }}（<span data-en="Based on {{ model.total_games }} battles" data-zh="基于 {{ model.total_games }} 场对战">基于 {{ model.total_games }} 场对战</span>）
     </p>
 </div>
 
 <div class="card">
-    <h2 style="margin-bottom: 1rem;">📉 评分趋势</h2>
-    <div id="rating-chart" style="position: relative; height: 200px; background: #0f0f1f; border-radius: 8px; overflow: hidden;">
-        <div id="chart-loading" style="text-align: center; padding-top: 80px; color: #666;">加载中...</div>
-        <canvas id="rating-canvas" style="display: none;"></canvas>
+    <h2 style="margin-bottom: 1rem;">📉 <span data-en="Rating Trend" data-zh="评分趋势">评分趋势</span></h2>
+    <div style="position: relative; height: 280px; background: #0f0f1f; border-radius: 8px; padding: 10px;">
+        <canvas id="rating-chart"></canvas>
     </div>
     <p style="color: #a0a0c0; font-size: 0.85rem; margin-top: 0.5rem;">
-        显示模型在每场对战后的 ELO 评分变化
+        <span data-en="ELO rating change after each battle (green=win, red=loss, orange=tie)" data-zh="每场对战后的 ELO 评分变化（绿=胜，红=负，橙=平）">每场对战后的 ELO 评分变化（绿=胜，红=负，橙=平）</span>
     </p>
 </div>
 
 <div class="card">
-    <h2 style="margin-bottom: 1rem;">⚔️ 对战历史</h2>
+    <h2 style="margin-bottom: 1rem;">⚔️ <span data-en="Battle History" data-zh="对战历史">对战历史</span></h2>
     {% if model.recent_battles %}
     <table>
         <thead>
             <tr>
-                <th>对手</th>
+                <th><span data-en="Opponent" data-zh="对手">对手</span></th>
                 <th>Prompt</th>
-                <th>结果</th>
-                <th>评分变化</th>
-                <th>时间</th>
+                <th><span data-en="Result" data-zh="结果">结果</span></th>
+                <th><span data-en="Rating Δ" data-zh="评分变化">评分变化</span></th>
+                <th><span data-en="Time" data-zh="时间">时间</span></th>
             </tr>
         </thead>
         <tbody>
@@ -115,7 +115,7 @@
         </tbody>
     </table>
     {% else %}
-    <p class="status">暂无对战记录</p>
+    <p class="status"><span data-en="No battle records" data-zh="暂无对战记录">暂无对战记录</span></p>
     {% endif %}
 </div>
 
@@ -125,102 +125,88 @@
         <code>GET /api/models/{{ model.id }}</code> — 基本信息<br>
         <code>GET /api/models/{{ model.id }}/detail</code> — 详情+对战历史<br>
         <code>GET /api/models/{{ model.id }}/rating-history</code> — 评分历史<br>
+        <code>GET /api/models/{{ model.id }}/trends</code> — 评分趋势数据<br>
         <code>GET /api/models/{{ model.id }}/head-to-head/{other_id}</code> — H2H 对比
     </p>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-async function loadRatingHistory() {
+async function loadRatingChart() {
+    const canvas = document.getElementById('rating-chart');
     try {
-        const resp = await fetch('/api/models/{{ model.id }}/rating-history');
+        const resp = await fetch('/api/models/{{ model.id }}/trends');
         if (!resp.ok) return;
-        const history = await resp.json();
+        const data = await resp.json();
+        const points = data.points;
 
-        if (history.length === 0) {
-            document.getElementById('chart-loading').textContent = '暂无评分历史数据';
+        if (points.length === 0) {
+            canvas.parentElement.innerHTML = '<div style="text-align:center;padding-top:120px;color:#666;">暂无评分历史数据</div>';
             return;
         }
 
-        const canvas = document.getElementById('rating-canvas');
-        const ctx = canvas.getContext('2d');
-        const rect = canvas.parentElement.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = 200;
-        canvas.style.display = 'block';
-        document.getElementById('chart-loading').style.display = 'none';
+        const labels = points.map((p, i) => '#' + (i + 1));
+        const ratings = points.map(p => p.rating);
+        const colors = points.map(p =>
+            p.result === 'win' ? '#4CAF50' :
+            p.result === 'loss' ? '#f44336' : '#FF9800'
+        );
 
-        const padding = { top: 20, right: 20, bottom: 30, left: 50 };
-        const w = canvas.width - padding.left - padding.right;
-        const h = canvas.height - padding.top - padding.bottom;
-
-        const ratings = history.map(e => e.rating);
-        const minR = Math.min(...ratings) - 20;
-        const maxR = Math.max(...ratings) + 20;
-        const rangeR = maxR - minR || 1;
-
-        // Grid lines
-        ctx.strokeStyle = '#1a1a3a';
-        ctx.lineWidth = 1;
-        for (let i = 0; i <= 4; i++) {
-            const y = padding.top + (h / 4) * i;
-            ctx.beginPath();
-            ctx.moveTo(padding.left, y);
-            ctx.lineTo(canvas.width - padding.right, y);
-            ctx.stroke();
-
-            const val = maxR - (rangeR / 4) * i;
-            ctx.fillStyle = '#666';
-            ctx.font = '11px monospace';
-            ctx.textAlign = 'right';
-            ctx.fillText(Math.round(val), padding.left - 5, y + 4);
-        }
-
-        // Plot line
-        ctx.strokeStyle = '#00d4ff';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        history.forEach((entry, i) => {
-            const x = padding.left + (i / Math.max(history.length - 1, 1)) * w;
-            const y = padding.top + ((maxR - entry.rating) / rangeR) * h;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+        new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'ELO Rating',
+                    data: ratings,
+                    borderColor: '#00d4ff',
+                    backgroundColor: 'rgba(0, 212, 255, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    pointBackgroundColor: colors,
+                    pointBorderColor: colors,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: function(ctx) {
+                                const p = points[ctx[0].dataIndex];
+                                return p.opponent_name + ' (' + p.result + ')';
+                            },
+                            label: function(ctx) {
+                                const p = points[ctx.dataIndex];
+                                const sign = p.rating_change >= 0 ? '+' : '';
+                                return 'Rating: ' + p.rating + ' (' + sign + p.rating_change + ')';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: '#1a1a3a' },
+                        ticks: { color: '#666', maxTicksLimit: 15 }
+                    },
+                    y: {
+                        grid: { color: '#1a1a3a' },
+                        ticks: { color: '#666' }
+                    }
+                }
+            }
         });
-        ctx.stroke();
-
-        // Plot dots
-        history.forEach((entry, i) => {
-            const x = padding.left + (i / Math.max(history.length - 1, 1)) * w;
-            const y = padding.top + ((maxR - entry.rating) / rangeR) * h;
-            ctx.beginPath();
-            ctx.arc(x, y, 4, 0, Math.PI * 2);
-            ctx.fillStyle = entry.result === 'win' ? '#4CAF50' : entry.result === 'loss' ? '#f44336' : '#FF9800';
-            ctx.fill();
-        });
-
-        // Legend
-        ctx.fillStyle = '#4CAF50';
-        ctx.fillRect(canvas.width - 100, 10, 8, 8);
-        ctx.fillStyle = '#999';
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText('胜', canvas.width - 88, 18);
-
-        ctx.fillStyle = '#f44336';
-        ctx.fillRect(canvas.width - 65, 10, 8, 8);
-        ctx.fillStyle = '#999';
-        ctx.fillText('负', canvas.width - 53, 18);
-
-        ctx.fillStyle = '#FF9800';
-        ctx.fillRect(canvas.width - 35, 10, 8, 8);
-        ctx.fillStyle = '#999';
-        ctx.fillText('平', canvas.width - 23, 18);
     } catch (e) {
-        document.getElementById('chart-loading').textContent = '加载失败: ' + e.message;
+        canvas.parentElement.innerHTML = '<div style="text-align:center;padding-top:120px;color:#666;">加载失败: ' + e.message + '</div>';
     }
 }
 
-loadRatingHistory();
+loadRatingChart();
 </script>
 {% endblock %}

@@ -3,15 +3,15 @@
 {% block nav_battles %}active{% endblock %}
 
 {% block content %}
-<h1>⚔️ 对战历史</h1>
+<h1 data-en="⚔️ Battle History" data-zh="⚔️ 对战历史">⚔️ 对战历史</h1>
 
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <p style="color: #a0a0c0;">
-            共 {{ total }} 场对战 · 显示第 {{ offset + 1 }}-{{ [offset + battles|length, total]|min }} 场
+            <span data-en="Total {{ total }} battles" data-zh="共 {{ total }} 场对战">共 {{ total }} 场对战</span> · <span data-en="Showing {{ offset + 1 }}" data-zh="显示第 {{ offset + 1 }}">显示第 {{ offset + 1 }}</span>-{{ [offset + battles|length, total]|min }} 场
         </p>
         <div style="color: #a0a0c0; font-size: 0.9rem;">
-            <a href="/arena" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.3rem 0.8rem;">⚔️ 去投票</a>
+            <a href="/arena" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.3rem 0.8rem;">⚔️ <span data-en="Go Vote" data-zh="去投票">去投票</span></a>
         </div>
     </div>
 
@@ -23,6 +23,7 @@
                 <th>模型 B</th>
                 <th>Prompt</th>
                 <th>结果</th>
+                <th data-en="Comments" data-zh="评论">评论</th>
                 <th>时间</th>
             </tr>
         </thead>
@@ -55,18 +56,29 @@
                         <span style="color: #e0e0e0;">{{ b.model_b_name }}</span>
                     {% endif %}
                 </td>
-                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                     {{ b.prompt[:80] }}{% if b.prompt|length > 80 %}...{% endif %}
                 </td>
                 <td>
                     {% if b.winner == "model_a" %}
-                        <span class="badge badge-w">{{ b.model_a_name }} 胜</span>
+                        <span class="badge badge-w">{{ b.model_a_name }} <span data-en="Won" data-zh="胜">胜</span></span>
                     {% elif b.winner == "model_b" %}
-                        <span class="badge badge-w">{{ b.model_b_name }} 胜</span>
+                        <span class="badge badge-w">{{ b.model_b_name }} <span data-en="Won" data-zh="胜">胜</span></span>
                     {% elif b.winner == "tie" %}
-                        <span class="badge badge-t">平局</span>
+                        <span class="badge badge-t"><span data-en="Tie" data-zh="平局">平局</span></span>
                     {% else %}
-                        <span style="color: #666;">待投票</span>
+                        <span style="color: #666;"><span data-en="Pending" data-zh="待投票">待投票</span></span>
+                    {% endif %}
+                </td>
+                <td style="max-width: 200px;">
+                    {% if b.comments %}
+                        {% for c in b.comments %}
+                        <div style="font-size: 0.8rem; color: #a0a0c0; padding: 2px 0; border-bottom: 1px solid #1a1a2e;">
+                            💬 {{ c.comment[:80] }}{% if c.comment|length > 80 %}...{% endif %}
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <span style="color: #444; font-size: 0.8rem;">—</span>
                     {% endif %}
                 </td>
                 <td style="color: #666; font-size: 0.85rem;">{{ b.created_at[:16] }}</td>
@@ -77,12 +89,12 @@
 
     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
         {% if has_prev %}
-        <a href="/battles?offset={{ [offset - limit, 0]|max }}&limit={{ limit }}" class="btn btn-secondary" style="font-size: 0.85rem;">← 上一页</a>
+        <a href="/battles?offset={{ [offset - limit, 0]|max }}&limit={{ limit }}" class="btn btn-secondary" style="font-size: 0.85rem;"><span data-en="← Prev" data-zh="← 上一页">← 上一页</span></a>
         {% else %}
         <span></span>
         {% endif %}
         {% if has_next %}
-        <a href="/battles?offset={{ offset + limit }}&limit={{ limit }}" class="btn btn-secondary" style="font-size: 0.85rem;">下一页 →</a>
+        <a href="/battles?offset={{ offset + limit }}&limit={{ limit }}" class="btn btn-secondary" style="font-size: 0.85rem;"><span data-en="Next →" data-zh="下一页 →">下一页 →</span></a>
         {% else %}
         <span></span>
         {% endif %}
@@ -97,6 +109,7 @@
     <p style="color: #a0a0c0; font-size: 0.9rem;">
         <code>GET /api/arena</code> — 盲评对战列表（不含模型身份）<br>
         <code>GET /api/arena/{id}</code> — 对战详情（含模型身份）<br>
+        <code>GET /api/battles/with-comments</code> — 带评论的对战历史<br>
         <code>GET /api/models/{id}/rating-history</code> — 模型评分历史<br>
         <code>POST /api/vote</code> — 提交投票
     </p>

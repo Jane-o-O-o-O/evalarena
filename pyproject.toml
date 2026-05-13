@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "evalarena"
-version = "0.4.0"
+version = "0.6.0"
 description = "LLM evaluation arena - side-by-side model comparison with human preference scoring"
 readme = "README.md"
 license = "MIT"

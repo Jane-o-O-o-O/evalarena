@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-190%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-264%20passed-brightgreen.svg)]()
 [![PyPI](https://img.shields.io/pypi/v/evalarena?color=blue)](https://pypi.org/project/evalarena/)
 
 ### Why EvalArena?
@@ -71,8 +71,10 @@ EvalArena 是一个 LLM 评估竞技场，提供盲评侧边对比（blind side-
 - **投票后揭晓模型身份** — 显示双方模型名称和评分
 - 实时排行榜展示（含 95% CI + 分类标签）
 - 分类筛选排行榜
-- 模型详情页（对战历史 + 评分区间）
+- 模型详情页（对战历史 + **Chart.js 评分趋势图**）
 - Head-to-Head 对比页
+- **对比矩阵页** — 所有模型的逐对胜负可视化
+- **投票评论展示** — 对战历史页面显示投票者评语
 
 ### 📡 RESTful API
 | 端点 | 方法 | 说明 |
@@ -89,6 +91,9 @@ EvalArena 是一个 LLM 评估竞技场，提供盲评侧边对比（blind side-
 | `/api/leaderboard` | GET | 排行榜（支持 `?category=` 过滤） |
 | `/api/leaderboard/categories` | GET | 列出所有分类 |
 | `/api/stats` | GET | 平台统计数据 |
+| `/api/stats/categories` | GET | **分类统计数据** |
+| `/api/stats/comparison-matrix` | GET | **模型对比矩阵** |
+| `/api/battles/with-comments` | GET | **带评论的对战历史** |
 | `/api/keys` | GET/POST | API 密钥管理 |
 | `/api/providers` | GET | LLM Provider状态 |
 | `/health` | GET | 健康检查 |
@@ -105,6 +110,18 @@ EvalArena 是一个 LLM 评估竞技场，提供盲评侧边对比（blind side-
 - 自动对战：`POST /api/arena/auto-battle` 自动调用两个模型的 API 生成回答
 - 配置方式：设置 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` 环境变量
 - 为模型设置 `provider` 和 `api_model_id` 字段即可启用自动对战
+
+### 🌱 内置评估模板（Seed Templates）
+- 16 个预置评估模板，覆盖 coding、writing、reasoning、math、general 五大类
+- 一键加载：`evalarena seed-templates` 或 `evalarena seed-templates --category coding`
+- API 支持：`GET /api/templates` 查看所有模板，`GET /api/templates/{id}/random-battle` 基于模板创建对战
+- 模板按使用次数排序，高频模板排在前面
+
+### 📊 模型对比矩阵
+- 所有模型的逐对胜负记录可视化
+- Web UI：`/compare/matrix` 页面显示绿色/红色胜率条
+- API：`GET /api/stats/comparison-matrix` 返回所有模型对的 H2H 数据
+- CLI：`evalarena comparison-matrix` 终端查看
 
 ### 🐳 Docker 部署
 ```bash
@@ -163,7 +180,7 @@ evalarena/
 │       ├── model_detail.html
 │       ├── compare.html
 │       └── 404.html
-├── tests/                    # 115 个测试用例
+├── tests/                    # 264 个测试用例
 │   ├── test_elo.py           # ELO 算法 + CI 测试
 │   ├── test_database.py      # 数据库层测试
 │   ├── test_api.py           # API 集成测试
@@ -225,6 +242,11 @@ evalarena list-keys
 # 数据库
 evalarena init-db
 evalarena serve [--api-key KEY]
+
+# 种子数据和分析
+evalarena seed-templates [--category <category>]  # 加载内置评估模板
+evalarena comparison-matrix                         # 模型对比矩阵
+evalarena category-stats                            # 分类统计
 ```
 
 ### API 使用示例
