@@ -2,6 +2,25 @@
 
 All notable changes to EvalArena will be documented in this file.
 
+## [0.4.0] - 2026-05-13
+
+### Added
+- **LLM Provider framework** — Abstract provider interface with OpenAI and Anthropic adapters
+- **Auto-battle** — `POST /api/arena/auto-battle` auto-samples LLM responses for blind comparison
+- **Model update API** — `PUT /api/models/{id}` for partial metadata updates
+- **CLI `update-model`** — Update model metadata including `--provider` and `--api-model-id`
+- **CLI `providers`** — List available LLM providers and their configuration status
+- **`GET /api/providers`** — API endpoint to check provider availability
+- **Voter IP dedup** — Same IP cannot vote twice on the same battle
+- **Dockerfile + docker-compose.yml** — One-command deployment with `docker compose up`
+- **GitHub Actions CI** — Automated testing on Python 3.10/3.11/3.12
+- **Mock provider** — Testing provider that returns deterministic responses
+
+### Changed
+- Models now have `provider` and `api_model_id` fields for LLM API integration
+- Version bumped to 0.4.0
+- 33 new tests (190 total)
+
 ## [0.3.0] - 2026-05-12
 
 ### Added
