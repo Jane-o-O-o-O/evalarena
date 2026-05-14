@@ -83,6 +83,47 @@ CREATE TABLE IF NOT EXISTS prompt_templates (
     usage_count  INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS tournaments (
+    id               TEXT PRIMARY KEY,
+    name             TEXT NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'pending',
+    category         TEXT NOT NULL DEFAULT 'general',
+    prompts_per_match INTEGER NOT NULL DEFAULT 1,
+    prompt_template_id TEXT,
+    created_at       TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tournament_models (
+    tournament_id TEXT NOT NULL REFERENCES tournaments(id),
+    model_id      TEXT NOT NULL REFERENCES models(id),
+    PRIMARY KEY (tournament_id, model_id)
+);
+
+CREATE TABLE IF NOT EXISTS tournament_matches (
+    id              TEXT PRIMARY KEY,
+    tournament_id   TEXT NOT NULL REFERENCES tournaments(id),
+    model_a_id      TEXT NOT NULL REFERENCES models(id),
+    model_b_id      TEXT NOT NULL REFERENCES models(id),
+    winner_model_id TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tournament_match_battles (
+    match_id  TEXT NOT NULL REFERENCES tournament_matches(id),
+    battle_id TEXT NOT NULL REFERENCES battles(id),
+    PRIMARY KEY (match_id, battle_id)
+);
+
+CREATE TABLE IF NOT EXISTS webhooks (
+    id         TEXT PRIMARY KEY,
+    url        TEXT NOT NULL,
+    event      TEXT NOT NULL DEFAULT 'vote',
+    secret     TEXT NOT NULL DEFAULT '',
+    active     INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -1307,3 +1348,426 @@ class Database:
                     "created_at": row["created_at"],
                 })
         return results
+
+    # -- Tournaments --------------------------------------------------------
+
+    async def create_tournament(
+        self,
+        name: str,
+        model_ids: list[str],
+        category: str = "general",
+        prompts_per_match: int = 1,
+        prompt_template_id: str | None = None,
+    ) -> dict:
+        """Create a round-robin tournament with all model pairs."""
+        tournament_id = _uuid()
+        now = _now()
+
+        await self.db.execute(
+            "INSERT INTO tournaments (id, name, status, category, prompts_per_match, prompt_template_id, created_at) "
+            "VALUES (?, ?, 'pending', ?, ?, ?, ?)",
+            (tournament_id, name, category, prompts_per_match, prompt_template_id, now),
+        )
+
+        for mid in model_ids:
+            await self.db.execute(
+                "INSERT INTO tournament_models (tournament_id, model_id) VALUES (?, ?)",
+                (tournament_id, mid),
+            )
+
+        match_ids: list[str] = []
+        for i, m_a in enumerate(model_ids):
+            for j, m_b in enumerate(model_ids):
+                if i >= j:
+                    continue
+                match_id = _uuid()
+                await self.db.execute(
+                    "INSERT INTO tournament_matches (id, tournament_id, model_a_id, model_b_id, status, created_at) "
+                    "VALUES (?, ?, ?, ?, 'pending', ?)",
+                    (match_id, tournament_id, m_a, m_b, now),
+                )
+                match_ids.append(match_id)
+
+        await self.db.commit()
+        return {
+            "id": tournament_id, "name": name, "status": "pending",
+            "category": category, "prompts_per_match": prompts_per_match,
+            "total_matches": len(match_ids), "completed_matches": 0,
+            "model_ids": model_ids, "created_at": now,
+            "standings": [],
+        }
+
+    async def get_tournament(self, tournament_id: str) -> dict | None:
+        """Get tournament with standings and match details."""
+        async with self.db.execute(
+            "SELECT * FROM tournaments WHERE id = ?", (tournament_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return None
+
+        model_ids: list[str] = []
+        async with self.db.execute(
+            "SELECT model_id FROM tournament_models WHERE tournament_id = ?",
+            (tournament_id,),
+        ) as cur:
+            async for r in cur:
+                model_ids.append(r["model_id"])
+
+        matches: list[dict] = []
+        async with self.db.execute(
+            "SELECT tm.*, ma.name as name_a, mb.name as name_b "
+            "FROM tournament_matches tm "
+            "JOIN models ma ON tm.model_a_id = ma.id "
+            "JOIN models mb ON tm.model_b_id = mb.id "
+            "WHERE tm.tournament_id = ?",
+            (tournament_id,),
+        ) as cur:
+            async for r in cur:
+                battle_ids: list[str] = []
+                async with self.db.execute(
+                    "SELECT battle_id FROM tournament_match_battles WHERE match_id = ?",
+                    (r["id"],),
+                ) as bc:
+                    async for br in bc:
+                        battle_ids.append(br["battle_id"])
+                matches.append({
+                    "id": r["id"], "tournament_id": tournament_id,
+                    "model_a_id": r["model_a_id"], "model_a_name": r["name_a"],
+                    "model_b_id": r["model_b_id"], "model_b_name": r["name_b"],
+                    "battle_ids": battle_ids, "winner_model_id": r["winner_model_id"],
+                    "status": r["status"],
+                })
+
+        completed = sum(1 for m in matches if m["status"] == "completed")
+        standings: dict[str, dict] = {}
+        for mid in model_ids:
+            model = await self.get_model(mid)
+            standings[mid] = {
+                "model_id": mid, "model_name": model.name if model else mid,
+                "wins": 0, "losses": 0, "ties": 0, "points": 0.0, "rating_change": 0.0,
+            }
+
+        for m in matches:
+            if m["status"] != "completed":
+                continue
+            wid = m["winner_model_id"]
+            if wid is None:
+                standings[m["model_a_id"]]["ties"] += 1
+                standings[m["model_a_id"]]["points"] += 0.5
+                standings[m["model_b_id"]]["ties"] += 1
+                standings[m["model_b_id"]]["points"] += 0.5
+            elif wid == m["model_a_id"]:
+                standings[m["model_a_id"]]["wins"] += 1
+                standings[m["model_a_id"]]["points"] += 1.0
+                standings[m["model_b_id"]]["losses"] += 1
+            else:
+                standings[m["model_b_id"]]["wins"] += 1
+                standings[m["model_b_id"]]["points"] += 1.0
+                standings[m["model_a_id"]]["losses"] += 1
+
+        sorted_standings = sorted(standings.values(), key=lambda s: s["points"], reverse=True)
+        return {
+            "id": row["id"], "name": row["name"], "status": row["status"],
+            "category": row["category"], "prompts_per_match": row["prompts_per_match"],
+            "total_matches": len(matches), "completed_matches": completed,
+            "model_ids": model_ids, "created_at": row["created_at"],
+            "standings": sorted_standings, "matches": matches,
+        }
+
+    async def list_tournaments(self, status: str | None = None) -> list[dict]:
+        """List all tournaments, optionally filtered by status."""
+        if status:
+            query = "SELECT * FROM tournaments WHERE status = ? ORDER BY created_at DESC"
+            params: tuple = (status,)
+        else:
+            query = "SELECT * FROM tournaments ORDER BY created_at DESC"
+            params = ()
+
+        results: list[dict] = []
+        async with self.db.execute(query, params) as cur:
+            async for row in cur:
+                async with self.db.execute(
+                    "SELECT COUNT(*) as total, "
+                    "SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed "
+                    "FROM tournament_matches WHERE tournament_id = ?",
+                    (row["id"],),
+                ) as mc:
+                    mrow = await mc.fetchone()
+                    total_matches = mrow["total"] if mrow else 0
+                    completed_count = mrow["completed"] if mrow else 0
+
+                model_ids_list: list[str] = []
+                async with self.db.execute(
+                    "SELECT model_id FROM tournament_models WHERE tournament_id = ?",
+                    (row["id"],),
+                ) as mc2:
+                    async for mr in mc2:
+                        model_ids_list.append(mr["model_id"])
+
+                results.append({
+                    "id": row["id"], "name": row["name"], "status": row["status"],
+                    "category": row["category"], "prompts_per_match": row["prompts_per_match"],
+                    "total_matches": total_matches, "completed_matches": completed_count,
+                    "model_ids": model_ids_list, "created_at": row["created_at"],
+                    "standings": [],
+                })
+        return results
+
+    async def start_tournament(self, tournament_id: str) -> bool:
+        """Mark tournament as in-progress."""
+        async with self.db.execute(
+            "SELECT id FROM tournaments WHERE id = ? AND status = 'pending'",
+            (tournament_id,),
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await self.db.execute(
+            "UPDATE tournaments SET status = 'in_progress' WHERE id = ?",
+            (tournament_id,),
+        )
+        await self.db.commit()
+        return True
+
+    async def complete_tournament(self, tournament_id: str) -> bool:
+        """Mark tournament as completed."""
+        async with self.db.execute(
+            "SELECT id FROM tournaments WHERE id = ? AND status = 'in_progress'",
+            (tournament_id,),
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await self.db.execute(
+            "UPDATE tournaments SET status = 'completed' WHERE id = ?",
+            (tournament_id,),
+        )
+        await self.db.commit()
+        return True
+
+    async def cancel_tournament(self, tournament_id: str) -> bool:
+        """Cancel a tournament."""
+        async with self.db.execute(
+            "SELECT id FROM tournaments WHERE id = ? AND status IN ('pending', 'in_progress')",
+            (tournament_id,),
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await self.db.execute(
+            "UPDATE tournaments SET status = 'cancelled' WHERE id = ?",
+            (tournament_id,),
+        )
+        await self.db.commit()
+        return True
+
+    async def record_match_battle(
+        self, match_id: str, battle_id: str, winner_model_id: str | None
+    ) -> bool:
+        """Record a battle result for a tournament match."""
+        await self.db.execute(
+            "INSERT OR IGNORE INTO tournament_match_battles (match_id, battle_id) VALUES (?, ?)",
+            (match_id, battle_id),
+        )
+        await self.db.execute(
+            "UPDATE tournament_matches SET winner_model_id = ?, status = 'completed' WHERE id = ?",
+            (winner_model_id, match_id),
+        )
+        await self.db.commit()
+        return True
+
+    # -- Full-text Battle Search --------------------------------------------
+
+    async def search_battles(self, query: str, limit: int = 20) -> list[dict]:
+        """Search battles by prompt or response content."""
+        pattern = f"%{query}%"
+        results: list[dict] = []
+        seen_ids: set[str] = set()
+
+        async with self.db.execute(
+            "SELECT b.*, ma.name as name_a, mb.name as name_b, 1.0 as relevance "
+            "FROM battles b "
+            "JOIN models ma ON b.model_a_id = ma.id "
+            "JOIN models mb ON b.model_b_id = mb.id "
+            "WHERE b.prompt LIKE ? "
+            "ORDER BY b.created_at DESC LIMIT ?",
+            (pattern, limit),
+        ) as cur:
+            async for row in cur:
+                seen_ids.add(row["id"])
+                results.append({
+                    "id": row["id"], "prompt": row["prompt"],
+                    "response_a": row["response_a"], "response_b": row["response_b"],
+                    "model_a_name": row["name_a"], "model_b_name": row["name_b"],
+                    "winner": row["winner"], "relevance_score": 1.0,
+                    "created_at": row["created_at"],
+                })
+
+        remaining = limit - len(results)
+        if remaining > 0:
+            async with self.db.execute(
+                "SELECT b.*, ma.name as name_a, mb.name as name_b, 0.5 as relevance "
+                "FROM battles b "
+                "JOIN models ma ON b.model_a_id = ma.id "
+                "JOIN models mb ON b.model_b_id = mb.id "
+                "WHERE (b.response_a LIKE ? OR b.response_b LIKE ?) "
+                "ORDER BY b.created_at DESC LIMIT ?",
+                (pattern, pattern, remaining * 2),
+            ) as cur:
+                async for row in cur:
+                    if row["id"] in seen_ids or len(results) >= limit:
+                        continue
+                    seen_ids.add(row["id"])
+                    results.append({
+                        "id": row["id"], "prompt": row["prompt"],
+                        "response_a": row["response_a"], "response_b": row["response_b"],
+                        "model_a_name": row["name_a"], "model_b_name": row["name_b"],
+                        "winner": row["winner"], "relevance_score": 0.5,
+                        "created_at": row["created_at"],
+                    })
+
+        return results[:limit]
+
+    # -- Win Streak Tracking ------------------------------------------------
+
+    async def get_win_streaks(self) -> list[dict]:
+        """Calculate win/loss streaks for all models."""
+        models = await self.list_models()
+        results: list[dict] = []
+
+        for model in models:
+            streaks: list[str] = []
+            async with self.db.execute(
+                "SELECT b.winner, b.model_a_id, b.model_b_id "
+                "FROM battles b "
+                "WHERE (b.model_a_id = ? OR b.model_b_id = ?) AND b.winner IS NOT NULL "
+                "ORDER BY b.created_at ASC",
+                (model.id, model.id),
+            ) as cur:
+                async for row in cur:
+                    is_model_a = row["model_a_id"] == model.id
+                    if row["winner"] == "tie":
+                        streaks.append("tie")
+                    elif (row["winner"] == "model_a" and is_model_a) or (
+                        row["winner"] == "model_b" and not is_model_a
+                    ):
+                        streaks.append("win")
+                    else:
+                        streaks.append("loss")
+
+            current_streak = 0
+            current_type = "none"
+            best_win = 0
+            best_loss = 0
+
+            if streaks:
+                last = streaks[-1]
+                current_type = last if last in ("win", "loss") else "none"
+                if current_type != "none":
+                    current_streak = 0
+                    for s in reversed(streaks):
+                        if s == current_type:
+                            current_streak += 1
+                        else:
+                            break
+                    if current_type == "loss":
+                        current_streak = -current_streak
+
+                temp_win = 0
+                temp_loss = 0
+                for s in streaks:
+                    if s == "win":
+                        temp_win += 1
+                        temp_loss = 0
+                        best_win = max(best_win, temp_win)
+                    elif s == "loss":
+                        temp_loss += 1
+                        temp_win = 0
+                        best_loss = max(best_loss, temp_loss)
+                    else:
+                        temp_win = 0
+                        temp_loss = 0
+
+            results.append({
+                "model_id": model.id, "model_name": model.name,
+                "current_streak": current_streak, "current_streak_type": current_type,
+                "best_win_streak": best_win, "best_loss_streak": best_loss,
+                "total_games": model.total_games,
+            })
+
+        results.sort(key=lambda r: r["best_win_streak"], reverse=True)
+        return results
+
+    async def get_model_streak(self, model_id: str) -> dict | None:
+        """Get win streak info for a single model."""
+        streaks = await self.get_win_streaks()
+        for s in streaks:
+            if s["model_id"] == model_id:
+                return s
+        return None
+
+    # -- Webhooks -----------------------------------------------------------
+
+    async def create_webhook(
+        self, url: str, event: str = "vote", secret: str = ""
+    ) -> dict:
+        """Register a new webhook."""
+        webhook_id = _uuid()
+        now = _now()
+        await self.db.execute(
+            "INSERT INTO webhooks (id, url, event, secret, active, created_at) "
+            "VALUES (?, ?, ?, ?, 1, ?)",
+            (webhook_id, url, event, secret, now),
+        )
+        await self.db.commit()
+        return {"id": webhook_id, "url": url, "event": event, "active": True, "created_at": now}
+
+    async def list_webhooks(self, event: str | None = None) -> list[dict]:
+        """List registered webhooks."""
+        if event:
+            query = "SELECT * FROM webhooks WHERE event = ? ORDER BY created_at DESC"
+            params: tuple = (event,)
+        else:
+            query = "SELECT * FROM webhooks ORDER BY created_at DESC"
+            params = ()
+        results: list[dict] = []
+        async with self.db.execute(query, params) as cur:
+            async for row in cur:
+                results.append({
+                    "id": row["id"], "url": row["url"], "event": row["event"],
+                    "active": bool(row["active"]), "created_at": row["created_at"],
+                })
+        return results
+
+    async def get_active_webhooks(self, event: str) -> list[dict]:
+        """Get all active webhooks for a specific event type."""
+        results: list[dict] = []
+        async with self.db.execute(
+            "SELECT * FROM webhooks WHERE event = ? AND active = 1", (event,)
+        ) as cur:
+            async for row in cur:
+                results.append({
+                    "id": row["id"], "url": row["url"], "event": row["event"],
+                    "secret": row["secret"], "active": True, "created_at": row["created_at"],
+                })
+        return results
+
+    async def delete_webhook(self, webhook_id: str) -> bool:
+        """Delete a webhook."""
+        async with self.db.execute(
+            "SELECT id FROM webhooks WHERE id = ?", (webhook_id,)
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await self.db.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
+        await self.db.commit()
+        return True
+
+    async def deactivate_webhook(self, webhook_id: str) -> bool:
+        """Deactivate a webhook."""
+        async with self.db.execute(
+            "SELECT id FROM webhooks WHERE id = ?", (webhook_id,)
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await self.db.execute("UPDATE webhooks SET active = 0 WHERE id = ?", (webhook_id,))
+        await self.db.commit()
+        return True

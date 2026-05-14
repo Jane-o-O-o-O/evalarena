@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-264%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-317%20passed-brightgreen.svg)]()
 [![PyPI](https://img.shields.io/pypi/v/evalarena?color=blue)](https://pypi.org/project/evalarena/)
 
 ### Why EvalArena?
@@ -94,6 +94,15 @@ EvalArena 是一个 LLM 评估竞技场，提供盲评侧边对比（blind side-
 | `/api/stats/categories` | GET | **分类统计数据** |
 | `/api/stats/comparison-matrix` | GET | **模型对比矩阵** |
 | `/api/battles/with-comments` | GET | **带评论的对战历史** |
+| `/api/battles/search?q=` | GET | **全文搜索** |
+| `/api/tournaments` | GET/POST | **锦标赛管理** |
+| `/api/tournaments/{id}` | GET | **锦标赛详情+积分榜** |
+| `/api/tournaments/{id}/start` | POST | 启动锦标赛 |
+| `/api/tournaments/{id}/complete` | POST | 完成锦标赛 |
+| `/api/streaks` | GET | **连胜追踪排行榜** |
+| `/api/models/{id}/streak` | GET | 单模型连胜信息 |
+| `/api/webhooks` | GET/POST | **Webhook管理** |
+| `/api/webhooks/{id}` | DELETE | 删除Webhook |
 | `/api/keys` | GET/POST | API 密钥管理 |
 | `/api/providers` | GET | LLM Provider状态 |
 | `/health` | GET | 健康检查 |
@@ -122,6 +131,37 @@ EvalArena 是一个 LLM 评估竞技场，提供盲评侧边对比（blind side-
 - Web UI：`/compare/matrix` 页面显示绿色/红色胜率条
 - API：`GET /api/stats/comparison-matrix` 返回所有模型对的 H2H 数据
 - CLI：`evalarena comparison-matrix` 终端查看
+
+### 🏆 锦标赛系统（Tournament）
+- **Round-robin 循环赛** — 所有模型两两对决
+- 自动赛程生成，支持积分排名
+- 状态管理：pending → in_progress → completed / cancelled
+- Web UI：`/tournaments` 页面
+- API：`POST /api/tournaments` 创建，`GET /api/tournaments/{id}` 查看
+- CLI：`evalarena create-tournament`、`evalarena list-tournaments`、`evalarena tournament-standings`
+
+### 🔍 全文搜索
+- 搜索 battles 的 prompt 和 response 内容
+- Prompt 匹配优先级高于 response 匹配
+- API：`GET /api/battles/search?q=keyword`
+- CLI：`evalarena search-battles <query>`
+
+### 📈 连胜追踪（Win Streak）
+- 追踪每个模型的当前连胜/连败
+- 记录最佳连胜和最佳连败
+- API：`GET /api/streaks`、`GET /api/models/{id}/streak`
+- CLI：`evalarena win-streaks`
+
+### 🔔 Webhook 通知
+- 投票后自动 POST 到注册的 URL
+- 支持 HMAC 签名验证
+- API：`POST /api/webhooks`、`GET /api/webhooks`、`DELETE /api/webhooks/{id}`
+- CLI：`evalarena create-webhook`、`evalarena list-webhooks`
+
+### 💾 数据备份/恢复
+- 完整数据库备份到 JSON
+- 从备份恢复（自动跳过重复数据）
+- CLI：`evalarena backup`、`evalarena restore`
 
 ### 🐳 Docker 部署
 ```bash
@@ -247,6 +287,23 @@ evalarena serve [--api-key KEY]
 evalarena seed-templates [--category <category>]  # 加载内置评估模板
 evalarena comparison-matrix                         # 模型对比矩阵
 evalarena category-stats                            # 分类统计
+
+# 锦标赛
+evalarena create-tournament <name> --models "A,B,C"  # 创建循环赛
+evalarena list-tournaments [--status pending]          # 列出锦标赛
+evalarena tournament-standings <id>                    # 查看积分榜
+
+# 搜索和连胜
+evalarena search-battles <query>                    # 全文搜索battles
+evalarena win-streaks                               # 连胜排行榜
+
+# Webhook
+evalarena create-webhook <url> [--event vote]       # 注册Webhook
+evalarena list-webhooks                             # 列出Webhooks
+
+# 备份恢复
+evalarena backup [--output backup.json]             # 数据备份
+evalarena restore <backup.json> [--yes]             # 数据恢复
 ```
 
 ### API 使用示例

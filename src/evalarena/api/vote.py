@@ -1,7 +1,7 @@
 """API routes for voting.
 
 Supports optional vote comments for qualitative feedback alongside
-the binary/tie choice.
+the binary/tie choice. Fires webhooks on vote events.
 """
 
 from fastapi import APIRouter, HTTPException, Request
@@ -23,7 +23,11 @@ async def submit_vote(data: VoteCreate, request: Request) -> VoteOut:
     Each battle can only be voted on once per IP address. Voting triggers
     ELO rating updates for both models. An optional ``comment`` field allows
     voters to explain their reasoning.
+
+    Fires registered webhooks with event type ``vote``.
     """
+    from evalarena.webhooks import fire_webhooks
+
     db = get_db()
     voter_ip = request.client.host if request.client else None
     try:
@@ -38,6 +42,19 @@ async def submit_vote(data: VoteCreate, request: Request) -> VoteOut:
         raise HTTPException(status_code=409, detail="This battle has already been voted on")
 
     battle = await db.get_battle(data.battle_id)
+
+    # Fire webhook notifications (non-blocking)
+    try:
+        webhooks = await db.get_active_webhooks("vote")
+        if webhooks:
+            await fire_webhooks(webhooks, "vote", {
+                "battle_id": data.battle_id,
+                "winner": data.winner.value,
+                "comment": getattr(data, "comment", "") or "",
+            })
+    except Exception:
+        pass  # Don't fail the vote if webhooks fail
+
     return VoteOut(
         id="recorded",
         battle_id=data.battle_id,

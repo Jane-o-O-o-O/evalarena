@@ -388,5 +388,146 @@ class ModelTrendOut(BaseModel):
     points: list[ModelTrendPoint]
 
 
+# -- Tournament -------------------------------------------------------------
+
+
+class TournamentStatus(str, Enum):
+    """Tournament lifecycle states."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class TournamentCreate(BaseModel):
+    """Request to create a round-robin tournament."""
+
+    name: str = Field(..., min_length=1, max_length=200, examples=["Q1 2026 Coding Tournament"])
+    model_ids: list[str] = Field(
+        ..., min_length=2, max_length=50,
+        description="List of model IDs to include in the tournament",
+    )
+    prompt_template_id: str | None = Field(
+        None,
+        description="Optional prompt template to use for all matches",
+    )
+    prompts_per_match: int = Field(
+        default=1, ge=1, le=10,
+        description="Number of battles per model pair",
+    )
+    category: str = Field(
+        default="general", max_length=50,
+        description="Tournament category filter",
+    )
+
+
+class TournamentMatchOut(BaseModel):
+    """A single match in a tournament."""
+
+    id: str
+    tournament_id: str
+    model_a_id: str
+    model_a_name: str
+    model_b_id: str
+    model_b_name: str
+    battle_ids: list[str] = []
+    winner_model_id: str | None = None
+    status: str = "pending"  # pending, completed
+
+
+class TournamentOut(BaseModel):
+    """Tournament returned from API."""
+
+    id: str
+    name: str
+    status: str
+    category: str
+    prompts_per_match: int
+    total_matches: int
+    completed_matches: int
+    model_ids: list[str] = []
+    created_at: str
+    standings: list["TournamentStanding"] = []
+
+
+class TournamentStanding(BaseModel):
+    """A model's standing in a tournament."""
+
+    model_id: str
+    model_name: str
+    wins: int = 0
+    losses: int = 0
+    ties: int = 0
+    points: float = 0.0  # 1 per win, 0.5 per tie
+    rating_change: float = 0.0
+
+
+# -- Search ---------------------------------------------------------------
+
+
+class BattleSearchResult(BaseModel):
+    """A battle matching a search query."""
+
+    id: str
+    prompt: str
+    response_a: str
+    response_b: str
+    model_a_name: str
+    model_b_name: str
+    winner: str | None = None
+    relevance_score: float = 0.0
+    created_at: str
+
+
+# -- Win Streak -----------------------------------------------------------
+
+
+class WinStreakOut(BaseModel):
+    """Win/loss streak information for a model."""
+
+    model_id: str
+    model_name: str
+    current_streak: int = 0  # positive=wins, negative=losses
+    current_streak_type: str = "none"  # "win", "loss", "none"
+    best_win_streak: int = 0
+    best_loss_streak: int = 0
+    total_games: int = 0
+
+
+class ModelWinStreaks(BaseModel):
+    """Win streak leaderboard."""
+
+    entries: list[WinStreakOut]
+
+
+# -- Webhook --------------------------------------------------------------
+
+
+class WebhookCreate(BaseModel):
+    """Request to register a webhook."""
+
+    url: str = Field(..., min_length=1, max_length=500, description="Webhook callback URL")
+    event: str = Field(
+        default="vote",
+        description="Event type to trigger on (e.g. 'vote', 'battle', 'tournament')",
+    )
+    secret: str = Field(
+        default="", max_length=200,
+        description="Optional secret for HMAC signature verification",
+    )
+
+
+class WebhookOut(BaseModel):
+    """Webhook returned from API."""
+
+    id: str
+    url: str
+    event: str
+    active: bool = True
+    created_at: str
+
+
 # Resolve forward references
 ModelDetail.model_rebuild()
+TournamentOut.model_rebuild()

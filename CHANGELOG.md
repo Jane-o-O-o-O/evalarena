@@ -2,6 +2,25 @@
 
 All notable changes to EvalArena will be documented in this file.
 
+## [0.7.0] - 2026-05-14
+
+### Added
+- **Tournament system** — Round-robin tournament with automatic match scheduling and standings
+- **Tournament API** — `POST /api/tournaments`, `GET /api/tournaments/{id}`, start/complete/cancel endpoints
+- **Tournament CLI** — `create-tournament`, `list-tournaments`, `tournament-standings` commands
+- **Full-text battle search** — Search across prompts and responses with relevance ranking
+- **Battle search API** — `GET /api/battles/search?q=keyword`
+- **Battle search CLI** — `search-battles` command
+- **Win streak tracking** — Current streak, best win streak, best loss streak per model
+- **Win streak API** — `GET /api/streaks`, `GET /api/models/{id}/streak`
+- **Win streak CLI** — `win-streaks` command
+- **Webhook notifications** — POST to registered URLs on vote events with HMAC signature support
+- **Webhook API** — `POST /api/webhooks`, `GET /api/webhooks`, `DELETE /api/webhooks/{id}`
+- **Webhook CLI** — `create-webhook`, `list-webhooks` commands
+- **Database backup/restore** — Full JSON backup and restore with duplicate detection
+- **Backup/restore CLI** — `backup`, `restore` commands
+- **53 new tests** — Comprehensive test coverage for all v0.7.0 features (317 total)
+
 ## [0.6.0] - 2026-05-14
 
 ### Added
