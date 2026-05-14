@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -48,6 +49,7 @@ def create_app(
     rate_limit: int = 60,
     rate_window: int = 60,
     api_key: str | None = None,
+    cors_origins: list[str] | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -57,6 +59,7 @@ def create_app(
         rate_limit: Max requests per window per IP. Default 60/min.
         rate_window: Rate limit window in seconds. Default 60.
         api_key: If set, require this key for write operations (POST/PUT/DELETE).
+        cors_origins: List of allowed CORS origins. Default allows all.
 
     Returns:
         Configured FastAPI instance.
@@ -78,12 +81,22 @@ def create_app(
     app = FastAPI(
         title="EvalArena",
         description="LLM Evaluation Arena",
-        version="0.7.0",
+        version="0.8.0",
         lifespan=lifespan,
     )
 
     # Store reference on app state for external access (tests, middleware)
     app.state.db = db
+
+    # -- CORS middleware ----------------------------------------------------
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins or ["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # -- Rate limiting middleware ------------------------------------------
 
@@ -131,8 +144,10 @@ def create_app(
     import evalarena.api.extras as extras_api
     import evalarena.api.tournaments as tournaments_api
     import evalarena.api.search_streaks as search_streaks_api
+    import evalarena.api.tags as tags_api
+    import evalarena.api.dashboard as dashboard_api
 
-    for mod in [models_api, arena_api, vote_api, lb_api, stats_api, keys_api, templates_api, extras_api, tournaments_api, search_streaks_api]:
+    for mod in [models_api, arena_api, vote_api, lb_api, stats_api, keys_api, templates_api, extras_api, tournaments_api, search_streaks_api, tags_api, dashboard_api]:
         mod.get_db = get_db
 
     # Register routers
@@ -147,6 +162,8 @@ def create_app(
     from evalarena.api.extras import router as extras_router
     from evalarena.api.tournaments import router as tournaments_router
     from evalarena.api.search_streaks import router as search_streaks_router
+    from evalarena.api.tags import router as tags_router
+    from evalarena.api.dashboard import router as dashboard_router
 
     app.include_router(models_router)
     app.include_router(arena_router)
@@ -159,6 +176,8 @@ def create_app(
     app.include_router(extras_router)
     app.include_router(tournaments_router)
     app.include_router(search_streaks_router)
+    app.include_router(tags_router)
+    app.include_router(dashboard_router)
 
     # Register LLM providers (auto-discover from environment)
     from evalarena.providers import register_provider
@@ -173,7 +192,7 @@ def create_app(
     # Health check
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.7.0"}
+        return {"status": "ok", "version": "0.8.0"}
 
     # Web UI routes (Jinja2 templates)
     if TEMPLATE_DIR.exists():
