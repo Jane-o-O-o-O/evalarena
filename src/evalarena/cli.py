@@ -871,5 +871,361 @@ def category_stats_cmd(db_path: str):
     asyncio.run(_stats())
 
 
+# -- Tournament Commands --------------------------------------------------
+
+
+@main.command("create-tournament")
+@click.argument("name")
+@click.option("--models", required=True, help="Comma-separated model names or IDs")
+@click.option("--category", default="general", help="Tournament category")
+@click.option("--prompts-per-match", default=1, type=int, help="Battles per pair")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def create_tournament_cmd(name: str, models: str, category: str, prompts_per_match: int, db_path: str):
+    """Create a round-robin tournament."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _create():
+        db = Database(db_path)
+        await db.connect()
+        try:
+            model_names = [m.strip() for m in models.split(",")]
+            model_ids: list[str] = []
+            for mn in model_names:
+                m = await db.get_model_by_name(mn)
+                if not m:
+                    click.echo(f"Model '{mn}' not found", err=True)
+                    return
+                model_ids.append(m.id)
+
+            if len(model_ids) < 2:
+                click.echo("Need at least 2 models", err=True)
+                return
+
+            result = await db.create_tournament(
+                name=name, model_ids=model_ids,
+                category=category, prompts_per_match=prompts_per_match,
+            )
+            click.echo(f"Tournament created: {result['name']} (id={result['id']})")
+            click.echo(f"  Models: {len(model_ids)}")
+            click.echo(f"  Matches: {result['total_matches']}")
+            click.echo(f"  Prompts per match: {prompts_per_match}")
+        finally:
+            await db.close()
+
+    asyncio.run(_create())
+
+
+@main.command("list-tournaments")
+@click.option("--status", default=None, help="Filter by status")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def list_tournaments_cmd(status: str | None, db_path: str):
+    """List all tournaments."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _list():
+        db = Database(db_path)
+        await db.connect()
+        tournaments = await db.list_tournaments(status=status)
+        await db.close()
+
+        if not tournaments:
+            click.echo("No tournaments found.")
+            return
+
+        click.echo(f"{'Name':<30} {'Status':<12} {'Models':>7} {'Matches':>9} {'Done':>6}")
+        click.echo("-" * 70)
+        for t in tournaments:
+            click.echo(
+                f"{t['name']:<30} {t['status']:<12} {len(t['model_ids']):>7} "
+                f"{t['total_matches']:>9} {t['completed_matches']:>6}"
+            )
+
+    asyncio.run(_list())
+
+
+@main.command("tournament-standings")
+@click.argument("tournament_id")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def tournament_standings_cmd(tournament_id: str, db_path: str):
+    """Show tournament standings."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _standings():
+        db = Database(db_path)
+        await db.connect()
+        t = await db.get_tournament(tournament_id)
+        await db.close()
+
+        if not t:
+            click.echo(f"Tournament '{tournament_id}' not found", err=True)
+            return
+
+        click.echo(f"Tournament: {t['name']} ({t['status']})")
+        click.echo(f"Progress: {t['completed_matches']}/{t['total_matches']} matches")
+        click.echo()
+
+        if not t['standings']:
+            click.echo("No standings yet.")
+            return
+
+        click.echo(f"{'#':<4} {'Model':<25} {'W':>5} {'L':>5} {'T':>5} {'Pts':>6}")
+        click.echo("-" * 55)
+        for i, s in enumerate(t['standings'], 1):
+            click.echo(
+                f"{i:<4} {s['model_name']:<25} {s['wins']:>5} {s['losses']:>5} "
+                f"{s['ties']:>5} {s['points']:>6.1f}"
+            )
+
+    asyncio.run(_standings())
+
+
+# -- Search Commands ------------------------------------------------------
+
+
+@main.command("search-battles")
+@click.argument("query")
+@click.option("--limit", default=20, type=int, help="Max results")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def search_battles_cmd(query: str, limit: int, db_path: str):
+    """Search battles by prompt or response content."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _search():
+        db = Database(db_path)
+        await db.connect()
+        results = await db.search_battles(query, limit=limit)
+        await db.close()
+
+        if not results:
+            click.echo(f"No battles matching '{query}'.")
+            return
+
+        click.echo(f"Found {len(results)} battle(s) matching '{query}':")
+        click.echo(f"{'ID':<15} {'Model A':<15} {'Model B':<15} {'Prompt':<40}")
+        click.echo("-" * 90)
+        for r in results:
+            prompt_short = r['prompt'][:37] + "..." if len(r['prompt']) > 37 else r['prompt']
+            click.echo(f"{r['id']:<15} {r['model_a_name']:<15} {r['model_b_name']:<15} {prompt_short:<40}")
+
+    asyncio.run(_search())
+
+
+# -- Streak Commands ------------------------------------------------------
+
+
+@main.command("win-streaks")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def win_streaks_cmd(db_path: str):
+    """Show win streak leaderboard."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _streaks():
+        db = Database(db_path)
+        await db.connect()
+        streaks = await db.get_win_streaks()
+        await db.close()
+
+        if not streaks:
+            click.echo("No models with battle history.")
+            return
+
+        click.echo(f"{'Model':<25} {'Current':>9} {'Best Win':>10} {'Best Loss':>11} {'Games':>7}")
+        click.echo("-" * 70)
+        for s in streaks:
+            current = s['current_streak']
+            current_str = f"+{current}" if current > 0 else str(current)
+            if s['current_streak_type'] == 'none':
+                current_str = "—"
+            click.echo(
+                f"{s['model_name']:<25} {current_str:>9} {s['best_win_streak']:>10} "
+                f"{s['best_loss_streak']:>11} {s['total_games']:>7}"
+            )
+
+    asyncio.run(_streaks())
+
+
+# -- Webhook Commands -----------------------------------------------------
+
+
+@main.command("create-webhook")
+@click.argument("url")
+@click.option("--event", default="vote", help="Event type (vote/battle/tournament)")
+@click.option("--secret", default="", help="HMAC secret for signature verification")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def create_webhook_cmd(url: str, event: str, secret: str, db_path: str):
+    """Register a webhook for event notifications."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _create():
+        db = Database(db_path)
+        await db.connect()
+        result = await db.create_webhook(url=url, event=event, secret=secret)
+        await db.close()
+        click.echo(f"Webhook created: {result['id']}")
+        click.echo(f"  URL: {url}")
+        click.echo(f"  Event: {event}")
+
+    asyncio.run(_create())
+
+
+@main.command("list-webhooks")
+@click.option("--event", default=None, help="Filter by event type")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def list_webhooks_cmd(event: str | None, db_path: str):
+    """List registered webhooks."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _list():
+        db = Database(db_path)
+        await db.connect()
+        webhooks = await db.list_webhooks(event=event)
+        await db.close()
+
+        if not webhooks:
+            click.echo("No webhooks registered.")
+            return
+
+        click.echo(f"{'ID':<15} {'URL':<40} {'Event':<10} {'Active':>7}")
+        click.echo("-" * 75)
+        for w in webhooks:
+            active = "✓" if w['active'] else "✗"
+            click.echo(f"{w['id']:<15} {w['url']:<40} {w['event']:<10} {active:>7}")
+
+    asyncio.run(_list())
+
+
+# -- Backup/Restore Commands ----------------------------------------------
+
+
+@main.command("backup")
+@click.option("--output", "output_path", default="evalarena_backup.json", help="Backup file path")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def backup_cmd(output_path: str, db_path: str):
+    """Full database backup to JSON."""
+    import asyncio
+    import json
+    from evalarena.db.database import Database
+
+    async def _backup():
+        db = Database(db_path)
+        await db.connect()
+
+        backup_data: dict = {
+            "version": "0.7.0",
+            "models": [],
+            "battles": [],
+            "prompt_templates": [],
+            "webhooks": [],
+        }
+
+        # Export models
+        models = await db.list_models()
+        for m in models:
+            backup_data["models"].append(m.model_dump())
+
+        # Export battles
+        battles = await db.export_battles(limit=100000)
+        backup_data["battles"] = battles
+
+        # Export templates
+        templates = await db.list_prompt_templates()
+        backup_data["prompt_templates"] = [t.model_dump() for t in templates]
+
+        # Export webhooks
+        webhooks = await db.list_webhooks()
+        backup_data["webhooks"] = webhooks
+
+        await db.close()
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(backup_data, f, indent=2, ensure_ascii=False)
+
+        click.echo(f"Backup saved: {output_path}")
+        click.echo(f"  Models: {len(backup_data['models'])}")
+        click.echo(f"  Battles: {len(backup_data['battles'])}")
+        click.echo(f"  Templates: {len(backup_data['prompt_templates'])}")
+        click.echo(f"  Webhooks: {len(backup_data['webhooks'])}")
+
+    asyncio.run(_backup())
+
+
+@main.command("restore")
+@click.argument("backup_path", type=click.Path(exists=True))
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+@click.option("--yes", is_flag=True, help="Skip confirmation")
+def restore_cmd(backup_path: str, db_path: str, yes: bool):
+    """Restore database from a JSON backup."""
+    import asyncio
+    import json
+    from evalarena.db.database import Database
+    from evalarena.db.models import ModelCreate, PromptTemplateCreate
+
+    async def _restore():
+        with open(backup_path, encoding="utf-8") as f:
+            data = json.load(f)
+
+        model_count = len(data.get("models", []))
+        battle_count = len(data.get("battles", []))
+
+        if not yes:
+            click.confirm(
+                f"Restore {model_count} models and {battle_count} battles to '{db_path}'? "
+                f"This will add to existing data.",
+                abort=True,
+            )
+
+        db = Database(db_path)
+        await db.connect()
+
+        # Restore models (skip duplicates by name)
+        restored_models = 0
+        for m in data.get("models", []):
+            existing = await db.get_model_by_name(m["name"])
+            if not existing:
+                try:
+                    await db.create_model(ModelCreate(
+                        name=m["name"],
+                        category=m.get("category", "general"),
+                        description=m.get("description", ""),
+                        organization=m.get("organization", ""),
+                        parameter_count=m.get("parameter_count", ""),
+                    ))
+                    restored_models += 1
+                except Exception:
+                    pass
+
+        # Restore templates
+        restored_templates = 0
+        for t in data.get("prompt_templates", []):
+            existing = await db.get_prompt_template_by_name(t["name"])
+            if not existing:
+                try:
+                    await db.create_prompt_template(PromptTemplateCreate(
+                        name=t["name"],
+                        prompt_text=t["prompt_text"],
+                        category=t.get("category", "general"),
+                        description=t.get("description", ""),
+                    ))
+                    restored_templates += 1
+                except Exception:
+                    pass
+
+        await db.close()
+
+        click.echo(f"Restore complete:")
+        click.echo(f"  Models restored: {restored_models}")
+        click.echo(f"  Templates restored: {restored_templates}")
+        click.echo(f"  (Battles require re-creation through the arena API)")
+
+    asyncio.run(_restore())
+
+
 if __name__ == "__main__":
     main()

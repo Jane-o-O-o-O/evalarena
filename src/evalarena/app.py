@@ -78,7 +78,7 @@ def create_app(
     app = FastAPI(
         title="EvalArena",
         description="LLM Evaluation Arena",
-        version="0.6.0",
+        version="0.7.0",
         lifespan=lifespan,
     )
 
@@ -129,8 +129,10 @@ def create_app(
     import evalarena.api.keys as keys_api
     import evalarena.api.templates as templates_api
     import evalarena.api.extras as extras_api
+    import evalarena.api.tournaments as tournaments_api
+    import evalarena.api.search_streaks as search_streaks_api
 
-    for mod in [models_api, arena_api, vote_api, lb_api, stats_api, keys_api, templates_api, extras_api]:
+    for mod in [models_api, arena_api, vote_api, lb_api, stats_api, keys_api, templates_api, extras_api, tournaments_api, search_streaks_api]:
         mod.get_db = get_db
 
     # Register routers
@@ -143,6 +145,8 @@ def create_app(
     from evalarena.api.providers import router as providers_router
     from evalarena.api.templates import router as templates_router
     from evalarena.api.extras import router as extras_router
+    from evalarena.api.tournaments import router as tournaments_router
+    from evalarena.api.search_streaks import router as search_streaks_router
 
     app.include_router(models_router)
     app.include_router(arena_router)
@@ -153,6 +157,8 @@ def create_app(
     app.include_router(providers_router)
     app.include_router(templates_router)
     app.include_router(extras_router)
+    app.include_router(tournaments_router)
+    app.include_router(search_streaks_router)
 
     # Register LLM providers (auto-discover from environment)
     from evalarena.providers import register_provider
@@ -167,7 +173,7 @@ def create_app(
     # Health check
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.6.0"}
+        return {"status": "ok", "version": "0.7.0"}
 
     # Web UI routes (Jinja2 templates)
     if TEMPLATE_DIR.exists():

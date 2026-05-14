@@ -494,18 +494,18 @@ class TestTemplateRandomBattle:
 
 
 class TestVersion:
-    """Test version was bumped to 0.6.0."""
+    """Test version was bumped to 0.7.0."""
 
     async def test_health_version(self, client: AsyncClient):
-        """Test health endpoint shows v0.6.0."""
+        """Test health endpoint shows v0.7.0."""
         resp = await client.get("/health")
         assert resp.status_code == 200
-        assert resp.json()["version"] == "0.6.0"
+        assert resp.json()["version"] == "0.7.0"
 
     async def test_version_in_module(self):
-        """Test __version__ is 0.6.0."""
+        """Test __version__ is 0.7.0."""
         from evalarena import __version__
-        assert __version__ == "0.6.0"
+        assert __version__ == "0.7.0"
 
 
 # ---------------------------------------------------------------------------
