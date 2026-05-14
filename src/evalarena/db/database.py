@@ -6,6 +6,7 @@ All state lives in a single file; schema is auto-created on first use.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -136,6 +137,23 @@ CREATE TABLE IF NOT EXISTS model_tags (
     model_id TEXT NOT NULL REFERENCES models(id) ON DELETE CASCADE,
     tag_id   TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
     PRIMARY KEY (model_id, tag_id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id          TEXT PRIMARY KEY,
+    action      TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id   TEXT NOT NULL,
+    details     TEXT NOT NULL DEFAULT '',
+    actor_ip    TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vote_dimensions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    vote_id         TEXT NOT NULL REFERENCES votes(id),
+    dimension_name  TEXT NOT NULL,
+    score           INTEGER NOT NULL
 );"""
 
 
@@ -407,69 +425,6 @@ class Database:
         await self.db.commit()
 
     # -- Votes CRUD ------------------------------------------------------
-
-    async def create_vote(self, data: VoteCreate, voter_ip: str | None = None) -> bool:
-        """Submit a vote and update ELO ratings.
-
-        Returns True if the vote was recorded. Returns False if battle already voted on.
-        Raises ValueError if battle not found or IP already voted.
-        """
-        # Check battle exists and hasn't been voted on
-        battle = await self.get_battle(data.battle_id)
-        if not battle:
-            raise ValueError(f"Battle {data.battle_id} not found")
-        if battle["winner"] is not None:
-            return False
-
-        # Prevent duplicate voting from same IP on same battle
-        if voter_ip:
-            async with self.db.execute(
-                "SELECT id FROM votes WHERE battle_id = ? AND voter_ip = ?",
-                (data.battle_id, voter_ip),
-            ) as cur:
-                if await cur.fetchone():
-                    raise ValueError("You have already voted on this battle")
-
-        vote_id = _uuid()
-        now = _now()
-
-        # Record vote (with optional comment)
-        comment = getattr(data, "comment", "") or ""
-        await self.db.execute(
-            "INSERT INTO votes (id, battle_id, winner, voter_ip, comment, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (vote_id, data.battle_id, data.winner.value, voter_ip, comment, now),
-        )
-
-        # Mark battle winner
-        await self.set_battle_winner(data.battle_id, data.winner.value)
-
-        # Update ELO ratings
-        model_a = await self._get_rating(battle["model_a_id"])
-        model_b = await self._get_rating(battle["model_b_id"])
-
-        # Snapshot ratings before update
-        a_before = model_a.rating
-        b_before = model_b.rating
-
-        if data.winner == Winner.TIE:
-            update_ratings(model_a, model_b, data.battle_id, is_tie=True)
-        elif data.winner == Winner.MODEL_A:
-            update_ratings(model_a, model_b, data.battle_id)
-        else:
-            update_ratings(model_b, model_a, data.battle_id)
-
-        # Store rating changes in battle record
-        await self.db.execute(
-            "UPDATE battles SET model_a_rating_before = ?, model_b_rating_before = ?, "
-            "model_a_rating_after = ?, model_b_rating_after = ? WHERE id = ?",
-            (a_before, b_before, model_a.rating, model_b.rating, data.battle_id),
-        )
-
-        await self._update_model_rating(battle["model_a_id"], model_a)
-        await self._update_model_rating(battle["model_b_id"], model_b)
-
-        await self.db.commit()
-        return True
 
     async def _get_rating(self, model_id: str) -> ModelRating:
         """Load a ModelRating from the database."""
@@ -2115,3 +2070,498 @@ class Database:
         losers = sorted(changes, key=lambda x: x["rating_change"])[:limit]
 
         return gainers, losers
+
+    # -- Audit Log --------------------------------------------------------
+
+    async def log_audit_action(
+        self,
+        action: str,
+        entity_type: str,
+        entity_id: str,
+        details: str = "",
+        actor_ip: str | None = None,
+    ) -> dict:
+        """Record an audit log entry.
+
+        Args:
+            action: Action performed (e.g. 'model.create', 'vote.submit').
+            entity_type: Type of entity affected (model, battle, vote, tag).
+            entity_id: ID of the affected entity.
+            details: JSON string with additional context.
+            actor_ip: IP address of the actor.
+
+        Returns:
+            The created audit log entry as a dict.
+        """
+        entry_id = _uuid()
+        now = _now()
+        await self.db.execute(
+            "INSERT INTO audit_log (id, action, entity_type, entity_id, details, actor_ip, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (entry_id, action, entity_type, entity_id, details, actor_ip or "", now),
+        )
+        await self.db.commit()
+        return {
+            "id": entry_id,
+            "action": action,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "details": details,
+            "actor_ip": actor_ip or "",
+            "created_at": now,
+        }
+
+    async def list_audit_logs(
+        self,
+        action: str | None = None,
+        entity_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict]:
+        """List audit log entries with optional filters.
+
+        Args:
+            action: Filter by action type.
+            entity_type: Filter by entity type.
+            limit: Maximum number of entries to return.
+            offset: Number of entries to skip.
+
+        Returns:
+            List of audit log entry dicts.
+        """
+        conditions: list[str] = []
+        params: list = []
+
+        if action:
+            conditions.append("action = ?")
+            params.append(action)
+        if entity_type:
+            conditions.append("entity_type = ?")
+            params.append(entity_type)
+
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = f"SELECT * FROM audit_log{where} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        async with self.db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows]
+
+    # -- Full Backup / Restore --------------------------------------------
+
+    async def create_backup(self) -> dict:
+        """Create a complete backup of all data.
+
+        Returns a JSON-serializable dict containing all models, battles, votes,
+        tags, prompt templates, and API keys.
+        """
+        import json as json_mod
+
+        # Models
+        async with self.db.execute("SELECT * FROM models") as cur:
+            models = [dict(r) for r in await cur.fetchall()]
+
+        # Battles
+        async with self.db.execute("SELECT * FROM battles") as cur:
+            battles = [dict(r) for r in await cur.fetchall()]
+
+        # Votes
+        async with self.db.execute("SELECT * FROM votes") as cur:
+            votes = [dict(r) for r in await cur.fetchall()]
+
+        # Tags
+        async with self.db.execute("SELECT * FROM tags") as cur:
+            tags = [dict(r) for r in await cur.fetchall()]
+
+        # Model-Tag associations
+        async with self.db.execute("SELECT * FROM model_tags") as cur:
+            model_tags = [dict(r) for r in await cur.fetchall()]
+
+        # Prompt templates
+        async with self.db.execute("SELECT * FROM prompt_templates") as cur:
+            templates = [dict(r) for r in await cur.fetchall()]
+
+        # API keys (exported without secrets for security)
+        async with self.db.execute("SELECT key, name, active, created_at FROM api_keys") as cur:
+            api_keys = [dict(r) for r in await cur.fetchall()]
+
+        # Tournaments
+        async with self.db.execute("SELECT * FROM tournaments") as cur:
+            tournaments = [dict(r) for r in await cur.fetchall()]
+        async with self.db.execute("SELECT * FROM tournament_models") as cur:
+            tournament_models = [dict(r) for r in await cur.fetchall()]
+        async with self.db.execute("SELECT * FROM tournament_matches") as cur:
+            tournament_matches = [dict(r) for r in await cur.fetchall()]
+
+        # Webhooks
+        async with self.db.execute("SELECT * FROM webhooks") as cur:
+            webhooks_list = [dict(r) for r in await cur.fetchall()]
+
+        return {
+            "version": "0.9.0",
+            "exported_at": _now(),
+            "models": models,
+            "battles": battles,
+            "votes": votes,
+            "tags": tags,
+            "model_tags": model_tags,
+            "prompt_templates": templates,
+            "api_keys": api_keys,
+            "tournaments": tournaments,
+            "tournament_models": tournament_models,
+            "tournament_matches": tournament_matches,
+            "webhooks": webhooks_list,
+        }
+
+    async def restore_from_backup(self, backup: dict) -> dict:
+        """Restore data from a backup dict.
+
+        Handles idempotent restore: existing records are skipped by primary key.
+
+        Args:
+            backup: The backup dict (from create_backup).
+
+        Returns:
+            Summary dict with counts of restored items and any errors.
+        """
+        errors: list[str] = []
+        restored: dict[str, int] = {}
+
+        # Version check
+        version = backup.get("version", "unknown")
+        if not version.startswith("0."):
+            errors.append(f"Unknown backup version: {version}")
+
+        # Restore models
+        count = 0
+        for model in backup.get("models", []):
+            try:
+                await self.db.execute(
+                    "INSERT OR IGNORE INTO models "
+                    "(id, name, category, description, organization, parameter_count, "
+                    "provider, api_model_id, rating, wins, losses, ties, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        model["id"], model["name"], model.get("category", "general"),
+                        model.get("description", ""), model.get("organization", ""),
+                        model.get("parameter_count", ""), model.get("provider", ""),
+                        model.get("api_model_id", ""), model["rating"],
+                        model["wins"], model["losses"], model["ties"], model["created_at"],
+                    ),
+                )
+                count += 1
+            except Exception as e:
+                errors.append(f"Model {model.get('name', '?')}: {e}")
+        restored["models_restored"] = count
+
+        # Restore battles
+        count = 0
+        for battle in backup.get("battles", []):
+            try:
+                await self.db.execute(
+                    "INSERT OR IGNORE INTO battles "
+                    "(id, model_a_id, model_b_id, prompt, response_a, response_b, winner, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        battle["id"], battle["model_a_id"], battle["model_b_id"],
+                        battle["prompt"], battle["response_a"], battle["response_b"],
+                        battle.get("winner"), battle["created_at"],
+                    ),
+                )
+                count += 1
+            except Exception as e:
+                errors.append(f"Battle {battle.get('id', '?')}: {e}")
+        restored["battles_restored"] = count
+
+        # Restore votes
+        count = 0
+        for vote in backup.get("votes", []):
+            try:
+                await self.db.execute(
+                    "INSERT OR IGNORE INTO votes (id, battle_id, winner, voter_ip, comment, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        vote["id"], vote["battle_id"], vote["winner"],
+                        vote.get("voter_ip", ""), vote.get("comment", ""),
+                        vote["created_at"],
+                    ),
+                )
+                count += 1
+            except Exception as e:
+                errors.append(f"Vote {vote.get('id', '?')}: {e}")
+        restored["votes_restored"] = count
+
+        # Restore tags
+        count = 0
+        for tag in backup.get("tags", []):
+            try:
+                await self.db.execute(
+                    "INSERT OR IGNORE INTO tags (id, name, color, created_at) VALUES (?, ?, ?, ?)",
+                    (tag["id"], tag["name"], tag.get("color", "#6366f1"), tag["created_at"]),
+                )
+                count += 1
+            except Exception as e:
+                errors.append(f"Tag {tag.get('name', '?')}: {e}")
+        restored["tags_restored"] = count
+
+        # Restore model_tags
+        count = 0
+        for mt in backup.get("model_tags", []):
+            try:
+                await self.db.execute(
+                    "INSERT OR IGNORE INTO model_tags (model_id, tag_id) VALUES (?, ?)",
+                    (mt["model_id"], mt["tag_id"]),
+                )
+                count += 1
+            except Exception as e:
+                errors.append(f"model_tag: {e}")
+        restored["model_tags_restored"] = count
+
+        # Restore prompt templates
+        count = 0
+        for tmpl in backup.get("prompt_templates", []):
+            try:
+                await self.db.execute(
+                    "INSERT OR IGNORE INTO prompt_templates "
+                    "(id, name, prompt_text, category, description, usage_count, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        tmpl["id"], tmpl["name"], tmpl["prompt_text"],
+                        tmpl.get("category", "general"), tmpl.get("description", ""),
+                        tmpl.get("usage_count", 0), tmpl["created_at"],
+                    ),
+                )
+                count += 1
+            except Exception as e:
+                errors.append(f"Template {tmpl.get('name', '?')}: {e}")
+        restored["templates_restored"] = count
+
+        # Restore webhooks
+        count = 0
+        for wh in backup.get("webhooks", []):
+            try:
+                await self.db.execute(
+                    "INSERT OR IGNORE INTO webhooks (id, url, event, secret, active, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (wh["id"], wh["url"], wh.get("event", "vote"),
+                     wh.get("secret", ""), wh.get("active", 1), wh["created_at"]),
+                )
+                count += 1
+            except Exception as e:
+                errors.append(f"Webhook: {e}")
+        restored["webhooks_restored"] = count
+
+        await self.db.commit()
+        restored["errors"] = errors
+        return restored
+
+    # -- Multi-dimension Scoring -------------------------------------------
+
+    async def create_vote(
+        self,
+        data,
+        voter_ip: str | None = None,
+        dimensions: dict[str, int] | None = None,
+    ) -> bool:
+        """Submit a vote and update ELO ratings.
+
+        Args:
+            data: VoteCreate with battle_id, winner, and optional comment.
+            voter_ip: IP address for deduplication.
+            dimensions: Optional scoring dimensions (e.g. fluency, accuracy, creativity).
+
+        Returns:
+            True if the vote was recorded.
+        """
+        from evalarena.db.models import Winner
+
+        battle = await self.get_battle(data.battle_id)
+        if not battle:
+            raise ValueError(f"Battle {data.battle_id} not found")
+        if battle["winner"] is not None:
+            return False
+
+        if voter_ip:
+            async with self.db.execute(
+                "SELECT id FROM votes WHERE battle_id = ? AND voter_ip = ?",
+                (data.battle_id, voter_ip),
+            ) as cur:
+                if await cur.fetchone():
+                    raise ValueError("You have already voted on this battle")
+
+        vote_id = _uuid()
+        now = _now()
+        comment = getattr(data, "comment", "") or ""
+
+        await self.db.execute(
+            "INSERT INTO votes (id, battle_id, winner, voter_ip, comment, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (vote_id, data.battle_id, data.winner.value, voter_ip, comment, now),
+        )
+
+        # Save dimensions if provided
+        if dimensions:
+            for dim_name, dim_value in dimensions.items():
+                await self.db.execute(
+                    "INSERT INTO vote_dimensions (vote_id, dimension_name, score) "
+                    "VALUES (?, ?, ?)",
+                    (vote_id, dim_name, dim_value),
+                )
+
+        await self.set_battle_winner(data.battle_id, data.winner.value)
+
+        # Update ELO ratings
+        model_a = await self._get_rating(battle["model_a_id"])
+        model_b = await self._get_rating(battle["model_b_id"])
+        a_before = model_a.rating
+        b_before = model_b.rating
+
+        if data.winner == Winner.TIE:
+            update_ratings(model_a, model_b, data.battle_id, is_tie=True)
+        elif data.winner == Winner.MODEL_A:
+            update_ratings(model_a, model_b, data.battle_id)
+        else:
+            update_ratings(model_b, model_a, data.battle_id)
+
+        await self.db.execute(
+            "UPDATE battles SET model_a_rating_before = ?, model_b_rating_before = ?, "
+            "model_a_rating_after = ?, model_b_rating_after = ? WHERE id = ?",
+            (a_before, b_before, model_a.rating, model_b.rating, data.battle_id),
+        )
+        await self._update_model_rating(battle["model_a_id"], model_a)
+        await self._update_model_rating(battle["model_b_id"], model_b)
+
+        # Log audit action
+        await self.log_audit_action(
+            action="vote.create",
+            entity_type="battle",
+            entity_id=data.battle_id,
+            details=json.dumps({
+                "winner": data.winner.value,
+                "comment": comment,
+                "dimensions": dimensions or {},
+                "model_a_before": a_before,
+                "model_a_after": model_a.rating,
+                "model_b_before": b_before,
+                "model_b_after": model_b.rating,
+            }),
+            actor_ip=voter_ip,
+        )
+
+        await self.db.commit()
+        return True
+
+    async def get_battle_dimensions(self, battle_id: str) -> dict[str, int]:
+        """Get scoring dimensions for a battle's vote.
+
+        Args:
+            battle_id: The battle ID.
+
+        Returns:
+            Dict mapping dimension name to score.
+        """
+        # Get vote for this battle
+        async with self.db.execute(
+            "SELECT id FROM votes WHERE battle_id = ?", (battle_id,)
+        ) as cur:
+            vote_row = await cur.fetchone()
+            if not vote_row:
+                return {}
+
+        async with self.db.execute(
+            "SELECT dimension_name, score FROM vote_dimensions WHERE vote_id = ?",
+            (vote_row["id"],),
+        ) as cur:
+            rows = await cur.fetchall()
+            return {r["dimension_name"]: r["score"] for r in rows}
+
+    # -- Comparison Report -------------------------------------------------
+
+    async def generate_comparison_report(self, model_id: str) -> dict:
+        """Generate a detailed comparison report for a model.
+
+        Includes win/loss record against each opponent, rating history,
+        and statistical summary.
+
+        Args:
+            model_id: The model to generate the report for.
+
+        Returns:
+            Comprehensive report dict.
+        """
+        model = await self.get_model(model_id)
+        if not model:
+            return {"model_id": model_id, "error": "Model not found"}
+
+        # Get all battles involving this model
+        async with self.db.execute(
+            "SELECT * FROM battles WHERE (model_a_id = ? OR model_b_id = ?) AND winner IS NOT NULL "
+            "ORDER BY created_at ASC",
+            (model_id, model_id),
+        ) as cur:
+            battles = await cur.fetchall()
+
+        # Build opponent statistics
+        opponent_stats: dict[str, dict] = {}
+        rating_history: list[dict] = []
+
+        for battle in battles:
+            is_a = battle["model_a_id"] == model_id
+            opponent_id = battle["model_b_id"] if is_a else battle["model_a_id"]
+
+            # Get opponent name
+            opp = await self.get_model(opponent_id)
+            opp_name = opp.name if opp else opponent_id
+
+            if opponent_id not in opponent_stats:
+                opponent_stats[opponent_id] = {
+                    "model_id": opponent_id,
+                    "model_name": opp_name,
+                    "wins": 0,
+                    "losses": 0,
+                    "ties": 0,
+                }
+
+            stats = opponent_stats[opponent_id]
+            if battle["winner"] == "tie":
+                stats["ties"] += 1
+                result = "tie"
+            elif (is_a and battle["winner"] == "model_a") or (not is_a and battle["winner"] == "model_b"):
+                stats["wins"] += 1
+                result = "win"
+            else:
+                stats["losses"] += 1
+                result = "loss"
+
+            # Rating history
+            rating_before = battle["model_a_rating_before"] if is_a else battle["model_b_rating_before"]
+            rating_after = battle["model_a_rating_after"] if is_a else battle["model_b_rating_after"]
+            if rating_before and rating_after:
+                rating_history.append({
+                    "battle_id": battle["id"],
+                    "rating_before": round(rating_before, 1),
+                    "rating_after": round(rating_after, 1),
+                    "rating_change": round(rating_after - rating_before, 1),
+                    "opponent_name": opp_name,
+                    "result": result,
+                    "created_at": battle["created_at"],
+                })
+
+        # Calculate per-opponent win rates
+        opponents = list(opponent_stats.values())
+        for opp in opponents:
+            total = opp["wins"] + opp["losses"] + opp["ties"]
+            opp["total"] = total
+            opp["win_rate"] = round(opp["wins"] / total * 100, 1) if total > 0 else 0.0
+
+        return {
+            "model_id": model_id,
+            "model_name": model.name,
+            "current_rating": round(model.rating, 1),
+            "total_battles": len(battles),
+            "overall_win_rate": model.win_rate,
+            "opponents": opponents,
+            "rating_history": rating_history,
+            "best_rating": max((h["rating_after"] for h in rating_history), default=model.rating),
+            "worst_rating": min((h["rating_after"] for h in rating_history), default=model.rating),
+        }
