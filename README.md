@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-379%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-434%20passed-brightgreen.svg)]()
 [![PyPI](https://img.shields.io/pypi/v/evalarena?color=blue)](https://pypi.org/project/evalarena/)
 
 ### Why EvalArena?
@@ -41,6 +41,26 @@ EvalArena 是一个 LLM 评估竞技场，提供盲评侧边对比（blind side-
 - 支持胜/负/平三种结果
 - 动态更新排名，投票后即时生效
 - **95% 置信区间** — 基于对战场数自动计算评分区间
+
+### 📊 Glicko-2 评分系统
+- 替代 Elo 的更精确评分算法，同时追踪 **评分**、**评分偏差（RD）**、**波动性（σ）**
+- 新模型快速调整（高 RD），老模型评分稳定
+- **统计学上有意义的置信区间** — 基于 RD 的 95% CI
+- **胜率预测** — 基于评分和 RD 计算两模型间的胜率
+
+### 📝 审计日志
+- 记录所有关键操作：模型创建、投票、标签变更等
+- 包含操作类型、实体信息、详情和 IP 地址
+- 支持按操作类型和实体类型过滤
+
+### 💾 完整备份/恢复
+- 一键导出所有数据为 JSON（模型+对战+投票+标签+模板+Webhook+锦标赛）
+- 幂等恢复 — 已存在记录自动跳过
+- CLI 命令 `evalarena backup` 和 API `POST /api/backup`
+
+### 🎯 多维度评分
+- 投票时可附加评分维度（流畅性、准确性、创造性等）
+- 为后续的细粒度模型分析提供数据基础
 
 ### 🏷️ 模型管理
 - CLI 和 API 两种注册方式

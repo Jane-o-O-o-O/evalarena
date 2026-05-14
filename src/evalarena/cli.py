@@ -1464,5 +1464,117 @@ def restore_cmd(backup_path: str, db_path: str, yes: bool):
     asyncio.run(_restore())
 
 
+# -- v0.9.0 Commands ------------------------------------------------------
+
+
+@main.command("audit-logs")
+@click.option("--action", default=None, help="Filter by action type")
+@click.option("--entity-type", default=None, help="Filter by entity type")
+@click.option("--limit", default=50, type=int, help="Max entries")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def audit_logs_cmd(action: str | None, entity_type: str | None, limit: int, db_path: str):
+    """List audit log entries."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _list():
+        db = Database(db_path)
+        await db.connect()
+        logs = await db.list_audit_logs(action=action, entity_type=entity_type, limit=limit)
+        await db.close()
+
+        if not logs:
+            click.echo("No audit log entries found.")
+            return
+
+        click.echo(f"{'Time':<22} {'Action':<20} {'Entity':<12} {'Entity ID':<15} {'IP':<15}")
+        click.echo("-" * 90)
+        for entry in logs:
+            click.echo(
+                f"{entry['created_at'][:19]:<22} {entry['action']:<20} "
+                f"{entry['entity_type']:<12} {entry['entity_id']:<15} "
+                f"{entry['actor_ip']:<15}"
+            )
+
+    asyncio.run(_list())
+
+
+@main.command("backup")
+@click.option("--output", "output_path", default="evalarena_backup.json", help="Output file path")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def backup_cmd(output_path: str, db_path: str):
+    """Create a complete backup of all data."""
+    import asyncio
+    import json
+    from evalarena.db.database import Database
+
+    async def _backup():
+        db = Database(db_path)
+        await db.connect()
+        backup = await db.create_backup()
+        await db.close()
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(backup, f, indent=2, ensure_ascii=False)
+
+        model_count = len(backup.get("models", []))
+        battle_count = len(backup.get("battles", []))
+        vote_count = len(backup.get("votes", []))
+        tag_count = len(backup.get("tags", []))
+        click.echo(f"Backup saved to {output_path}")
+        click.echo(f"  Models: {model_count}")
+        click.echo(f"  Battles: {battle_count}")
+        click.echo(f"  Votes: {vote_count}")
+        click.echo(f"  Tags: {tag_count}")
+
+    asyncio.run(_backup())
+
+
+@main.command("report")
+@click.argument("model_name")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+@click.option("--format", "fmt", default="json", type=click.Choice(["json", "text"]))
+def report_cmd(model_name: str, db_path: str, fmt: str):
+    """Generate a comparison report for a model."""
+    import asyncio
+    import json
+    from evalarena.db.database import Database
+
+    async def _report():
+        db = Database(db_path)
+        await db.connect()
+        model = await db.get_model_by_name(model_name)
+        if not model:
+            click.echo(f"Model '{model_name}' not found", err=True)
+            await db.close()
+            return
+
+        report = await db.generate_comparison_report(model.id)
+        await db.close()
+
+        if fmt == "json":
+            click.echo(json.dumps(report, indent=2, ensure_ascii=False))
+        else:
+            click.echo(f"Comparison Report: {report['model_name']}")
+            click.echo("=" * 50)
+            click.echo(f"  Current Rating: {report['current_rating']}")
+            click.echo(f"  Total Battles:  {report['total_battles']}")
+            click.echo(f"  Win Rate:       {report['overall_win_rate']}%")
+            click.echo(f"  Best Rating:    {report['best_rating']}")
+            click.echo(f"  Worst Rating:   {report['worst_rating']}")
+            if report["opponents"]:
+                click.echo()
+                click.echo("Opponent Breakdown:")
+                click.echo(f"  {'Opponent':<25} {'W':>5} {'L':>5} {'T':>5} {'Win%':>7}")
+                click.echo("  " + "-" * 50)
+                for opp in report["opponents"]:
+                    click.echo(
+                        f"  {opp['model_name']:<25} {opp['wins']:>5} {opp['losses']:>5} "
+                        f"{opp['ties']:>5} {opp['win_rate']:>6.1f}%"
+                    )
+
+    asyncio.run(_report())
+
+
 if __name__ == "__main__":
     main()

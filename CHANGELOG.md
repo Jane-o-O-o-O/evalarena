@@ -2,6 +2,30 @@
 
 All notable changes to EvalArena will be documented in this file.
 
+## [0.9.0] - 2026-05-15
+
+### Added
+- **Glicko-2 rating system** — Alternative to Elo with rating deviation (RD) and volatility tracking; statistically meaningful confidence intervals
+- **Glicko-2 API** — Win probability estimation, Elo-to-Glicko-2 conversion
+- **Audit log system** — Tracks all platform actions (model create, vote, update) with entity type, details, and actor IP
+- **Audit log API** — `GET /api/audit-logs` with action/entity_type filters and pagination
+- **Audit log CLI** — `audit-logs` command with filter options
+- **Full backup/restore** — Complete JSON export of models, battles, votes, tags, templates, webhooks, tournaments
+- **Backup/restore API** — `POST /api/backup` and `POST /api/restore` with idempotent restore
+- **Backup/restore CLI** — `backup` command with JSON output
+- **Multi-dimension vote scoring** — Optional per-vote scoring dimensions (fluency, accuracy, creativity, etc.)
+- **Model comparison reports** — Detailed per-model report with opponent breakdown, rating history, best/worst ratings
+- **Comparison report API** — `GET /api/reports/comparison/{model_id}`
+- **Comparison report CLI** — `report` command with JSON and text output
+- **OpenAPI enhancements** — Full API description, tag groups with descriptions, expanded route docs
+- 55 new test cases (434 total)
+
+### Changed
+- Version bumped to 0.9.0
+- FastAPI app description expanded with feature overview
+- `create_vote()` now accepts optional `dimensions` parameter and auto-logs to audit log
+- Added `audit_log` and `vote_dimensions` database tables
+
 ## [0.8.0] - 2026-05-14
 
 ### Added

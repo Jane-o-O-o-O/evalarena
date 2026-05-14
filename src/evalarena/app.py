@@ -80,9 +80,26 @@ def create_app(
 
     app = FastAPI(
         title="EvalArena",
-        description="LLM Evaluation Arena",
-        version="0.8.0",
+        description="LLM Evaluation Arena — A platform for blind side-by-side comparison of language models. "
+        "Features ELO and Glicko-2 rating systems, tournament mode, auto-battle with LLM providers, "
+        "multi-dimension scoring, and comprehensive analytics.",
+        version="0.9.0",
         lifespan=lifespan,
+        openapi_tags=[
+            {"name": "models", "description": "Register, update, search, and manage LLM models"},
+            {"name": "arena", "description": "Create battles and auto-battle with LLM providers"},
+            {"name": "vote", "description": "Submit votes and view voting history"},
+            {"name": "leaderboard", "description": "Rankings, head-to-head comparisons, and win streaks"},
+            {"name": "stats", "description": "Platform statistics and model trends"},
+            {"name": "templates", "description": "Prompt template management"},
+            {"name": "providers", "description": "LLM provider configuration"},
+            {"name": "tournaments", "description": "Round-robin tournament management"},
+            {"name": "tags", "description": "Model tagging and categorization"},
+            {"name": "dashboard", "description": "Analytics dashboard — rating distribution, trends, top movers"},
+            {"name": "audit", "description": "Audit log — track all platform actions"},
+            {"name": "backup", "description": "Full backup and restore of platform data"},
+            {"name": "reports", "description": "Model comparison reports and analytics"},
+        ],
     )
 
     # Store reference on app state for external access (tests, middleware)
@@ -146,8 +163,9 @@ def create_app(
     import evalarena.api.search_streaks as search_streaks_api
     import evalarena.api.tags as tags_api
     import evalarena.api.dashboard as dashboard_api
+    import evalarena.api.extras_v090 as extras_v090_api
 
-    for mod in [models_api, arena_api, vote_api, lb_api, stats_api, keys_api, templates_api, extras_api, tournaments_api, search_streaks_api, tags_api, dashboard_api]:
+    for mod in [models_api, arena_api, vote_api, lb_api, stats_api, keys_api, templates_api, extras_api, tournaments_api, search_streaks_api, tags_api, dashboard_api, extras_v090_api]:
         mod.get_db = get_db
 
     # Register routers
@@ -164,6 +182,7 @@ def create_app(
     from evalarena.api.search_streaks import router as search_streaks_router
     from evalarena.api.tags import router as tags_router
     from evalarena.api.dashboard import router as dashboard_router
+    from evalarena.api.extras_v090 import audit_router, backup_router, report_router
 
     app.include_router(models_router)
     app.include_router(arena_router)
@@ -178,6 +197,9 @@ def create_app(
     app.include_router(search_streaks_router)
     app.include_router(tags_router)
     app.include_router(dashboard_router)
+    app.include_router(audit_router)
+    app.include_router(backup_router)
+    app.include_router(report_router)
 
     # Register LLM providers (auto-discover from environment)
     from evalarena.providers import register_provider
@@ -192,7 +214,7 @@ def create_app(
     # Health check
     @app.get("/health")
     async def health():
-        return {"status": "ok", "version": "0.8.0"}
+        return {"status": "ok", "version": "0.9.0"}
 
     # Web UI routes (Jinja2 templates)
     if TEMPLATE_DIR.exists():
