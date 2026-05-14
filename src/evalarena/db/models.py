@@ -528,6 +528,125 @@ class WebhookOut(BaseModel):
     created_at: str
 
 
+# -- Tags -----------------------------------------------------------------
+
+
+class TagCreate(BaseModel):
+    """Request to create a new tag."""
+
+    name: str = Field(..., min_length=1, max_length=50, examples=["open-source", "fine-tuned"])
+    color: str = Field(
+        default="#6366f1",
+        max_length=20,
+        description="Hex color code for the tag badge",
+    )
+
+
+class TagOut(BaseModel):
+    """Tag returned from API."""
+
+    id: str
+    name: str
+    color: str
+    model_count: int = 0
+    created_at: str
+
+
+class TagUpdate(BaseModel):
+    """Request to update a tag."""
+
+    name: str | None = Field(None, min_length=1, max_length=50)
+    color: str | None = Field(None, max_length=20)
+
+
+# -- Rating Decay ---------------------------------------------------------
+
+
+class RatingDecayConfig(BaseModel):
+    """Configuration for rating decay."""
+
+    inactive_days: int = Field(
+        default=30, ge=1,
+        description="Days of inactivity before decay kicks in",
+    )
+    decay_rate: float = Field(
+        default=0.02, ge=0.001, le=1.0,
+        description="Rate of decay per inactive period (e.g. 0.02 = 2%% per period)",
+    )
+    min_rating: float = Field(
+        default=100.0, ge=0.0,
+        description="Minimum rating floor (models won't decay below this)",
+    )
+
+
+class RatingDecayResult(BaseModel):
+    """Result of applying rating decay."""
+
+    models_affected: int
+    total_rating_decayed: float
+    details: list["DecayDetail"] = []
+
+
+class DecayDetail(BaseModel):
+    """Decay detail for a single model."""
+
+    model_id: str
+    model_name: str
+    old_rating: float
+    new_rating: float
+    decay_amount: float
+    inactive_days: int
+
+
+# -- Dashboard Analytics --------------------------------------------------
+
+
+class RatingDistributionBucket(BaseModel):
+    """A bucket in the rating distribution histogram."""
+
+    range_start: int
+    range_end: int
+    count: int
+
+
+class RatingDistribution(BaseModel):
+    """Rating distribution histogram."""
+
+    buckets: list[RatingDistributionBucket]
+    total_models: int
+    mean_rating: float
+    median_rating: float
+
+
+class ActivityTrend(BaseModel):
+    """Activity trend data point."""
+
+    date: str
+    battles: int
+    votes: int
+
+
+class TopMover(BaseModel):
+    """A model with the biggest rating change recently."""
+
+    model_id: str
+    model_name: str
+    rating_change: float
+    current_rating: float
+    period_days: int
+
+
+class DashboardStats(BaseModel):
+    """Full dashboard analytics."""
+
+    rating_distribution: RatingDistribution
+    activity_trends: list[ActivityTrend]
+    top_gainers: list[TopMover]
+    top_losers: list[TopMover]
+    period_days: int
+
+
 # Resolve forward references
 ModelDetail.model_rebuild()
 TournamentOut.model_rebuild()
+RatingDecayResult.model_rebuild()

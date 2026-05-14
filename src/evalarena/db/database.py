@@ -124,7 +124,19 @@ CREATE TABLE IF NOT EXISTS webhooks (
     active     INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
-"""
+
+CREATE TABLE IF NOT EXISTS tags (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    color       TEXT NOT NULL DEFAULT '#6366f1',
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS model_tags (
+    model_id TEXT NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+    tag_id   TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (model_id, tag_id)
+);"""
 
 
 def _now() -> str:
@@ -1771,3 +1783,335 @@ class Database:
         await self.db.execute("UPDATE webhooks SET active = 0 WHERE id = ?", (webhook_id,))
         await self.db.commit()
         return True
+
+    # -- Tags ---------------------------------------------------------------
+
+    async def create_tag(self, name: str, color: str = "#6366f1") -> dict:
+        """Create a new tag."""
+        tag_id = _uuid()
+        now = _now()
+        await self.db.execute(
+            "INSERT INTO tags (id, name, color, created_at) VALUES (?, ?, ?, ?)",
+            (tag_id, name, color, now),
+        )
+        await self.db.commit()
+        return {"id": tag_id, "name": name, "color": color, "model_count": 0, "created_at": now}
+
+    async def get_tag(self, tag_id: str) -> dict | None:
+        """Get a tag by ID."""
+        async with self.db.execute("SELECT * FROM tags WHERE id = ?", (tag_id,)) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return None
+            count = await self._count_tag_models(tag_id)
+            return {"id": row["id"], "name": row["name"], "color": row["color"],
+                    "model_count": count, "created_at": row["created_at"]}
+
+    async def get_tag_by_name(self, name: str) -> dict | None:
+        """Get a tag by name."""
+        async with self.db.execute("SELECT * FROM tags WHERE name = ?", (name,)) as cur:
+            row = await cur.fetchone()
+            if not row:
+                return None
+            count = await self._count_tag_models(row["id"])
+            return {"id": row["id"], "name": row["name"], "color": row["color"],
+                    "model_count": count, "created_at": row["created_at"]}
+
+    async def list_tags(self) -> list[dict]:
+        """List all tags with model counts."""
+        results: list[dict] = []
+        async with self.db.execute("SELECT * FROM tags ORDER BY name") as cur:
+            async for row in cur:
+                count = await self._count_tag_models(row["id"])
+                results.append({"id": row["id"], "name": row["name"], "color": row["color"],
+                                "model_count": count, "created_at": row["created_at"]})
+        return results
+
+    async def update_tag(self, tag_id: str, name: str | None = None, color: str | None = None) -> dict | None:
+        """Update a tag."""
+        existing = await self.get_tag(tag_id)
+        if not existing:
+            return None
+        updates = []
+        params = []
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name)
+        if color is not None:
+            updates.append("color = ?")
+            params.append(color)
+        if updates:
+            params.append(tag_id)
+            await self.db.execute(f"UPDATE tags SET {', '.join(updates)} WHERE id = ?", params)
+            await self.db.commit()
+        return await self.get_tag(tag_id)
+
+    async def delete_tag(self, tag_id: str) -> bool:
+        """Delete a tag and all associations."""
+        async with self.db.execute("SELECT id FROM tags WHERE id = ?", (tag_id,)) as cur:
+            if not await cur.fetchone():
+                return False
+        await self.db.execute("DELETE FROM model_tags WHERE tag_id = ?", (tag_id,))
+        await self.db.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+        await self.db.commit()
+        return True
+
+    async def add_model_tag(self, model_id: str, tag_id: str) -> bool:
+        """Associate a tag with a model."""
+        async with self.db.execute(
+            "SELECT 1 FROM models WHERE id = ?", (model_id,)
+        ) as cur:
+            if not await cur.fetchone():
+                raise ValueError(f"Model {model_id} not found")
+        async with self.db.execute(
+            "SELECT 1 FROM tags WHERE id = ?", (tag_id,)
+        ) as cur:
+            if not await cur.fetchone():
+                raise ValueError(f"Tag {tag_id} not found")
+        try:
+            await self.db.execute(
+                "INSERT INTO model_tags (model_id, tag_id) VALUES (?, ?)",
+                (model_id, tag_id),
+            )
+            await self.db.commit()
+            return True
+        except Exception:
+            return False  # Already associated
+
+    async def remove_model_tag(self, model_id: str, tag_id: str) -> bool:
+        """Remove a tag from a model."""
+        await self.db.execute(
+            "DELETE FROM model_tags WHERE model_id = ? AND tag_id = ?",
+            (model_id, tag_id),
+        )
+        await self.db.commit()
+        return True
+
+    async def get_model_tags(self, model_id: str) -> list[dict]:
+        """Get all tags for a model."""
+        results: list[dict] = []
+        async with self.db.execute(
+            "SELECT t.* FROM tags t JOIN model_tags mt ON t.id = mt.tag_id WHERE mt.model_id = ? ORDER BY t.name",
+            (model_id,),
+        ) as cur:
+            async for row in cur:
+                results.append({"id": row["id"], "name": row["name"], "color": row["color"]})
+        return results
+
+    async def get_models_by_tag(self, tag_id: str) -> list[ModelOut]:
+        """Get all models with a specific tag."""
+        async with self.db.execute(
+            "SELECT m.* FROM models m JOIN model_tags mt ON m.id = mt.model_id WHERE mt.tag_id = ? ORDER BY m.rating DESC",
+            (tag_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [self._row_to_model(r) for r in rows]
+
+    async def _count_tag_models(self, tag_id: str) -> int:
+        """Count models with a specific tag."""
+        async with self.db.execute(
+            "SELECT COUNT(*) FROM model_tags WHERE tag_id = ?", (tag_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else 0
+
+    # -- Rating Decay -------------------------------------------------------
+
+    async def apply_rating_decay(
+        self,
+        inactive_days: int = 30,
+        decay_rate: float = 0.02,
+        min_rating: float = 100.0,
+    ) -> dict:
+        """Apply rating decay to inactive models.
+
+        Models that haven't had a battle in ``inactive_days`` days lose
+        ``decay_rate`` of their rating above ``min_rating`` per inactive period.
+
+        Returns:
+            Dict with models_affected, total_rating_decayed, and details list.
+        """
+        from datetime import timedelta
+        from evalarena.db.models import DecayDetail
+
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(days=inactive_days)).isoformat()
+
+        # Find models with no battles since cutoff
+        inactive_models: list[tuple[str, str, float]] = []
+        async with self.db.execute(
+            "SELECT m.id, m.name, m.rating FROM models m WHERE m.id NOT IN ("
+            "  SELECT DISTINCT model_a_id FROM battles WHERE created_at > ? "
+            "  UNION "
+            "  SELECT DISTINCT model_b_id FROM battles WHERE created_at > ?"
+            ")",
+            (cutoff, cutoff),
+        ) as cur:
+            async for row in cur:
+                inactive_models.append((row["id"], row["name"], row["rating"]))
+
+        details: list[DecayDetail] = []
+        total_decayed = 0.0
+
+        for model_id, model_name, old_rating in inactive_models:
+            if old_rating <= min_rating:
+                continue
+
+            # Calculate how many inactive periods
+            async with self.db.execute(
+                "SELECT MAX(created_at) FROM battles WHERE model_a_id = ? OR model_b_id = ?",
+                (model_id, model_id),
+            ) as cur:
+                row = await cur.fetchone()
+                last_battle = row[0]
+
+            if last_battle:
+                last_dt = datetime.fromisoformat(last_battle.replace("Z", "+00:00"))
+                inactive_period_count = max(1, int((now - last_dt).total_seconds() / (86400 * inactive_days)))
+            else:
+                # Never had a battle - check creation date
+                async with self.db.execute(
+                    "SELECT created_at FROM models WHERE id = ?", (model_id,)
+                ) as cur:
+                    crow = await cur.fetchone()
+                    if crow:
+                        created = datetime.fromisoformat(crow[0].replace("Z", "+00:00"))
+                        inactive_period_count = max(1, int((now - created).total_seconds() / (86400 * inactive_days)))
+                    else:
+                        inactive_period_count = 1
+
+            decay_amount = (old_rating - min_rating) * decay_rate * inactive_period_count
+            new_rating = max(min_rating, old_rating - decay_amount)
+            new_rating = round(new_rating, 1)
+            decay_amount = round(old_rating - new_rating, 1)
+
+            if decay_amount > 0:
+                await self.db.execute(
+                    "UPDATE models SET rating = ? WHERE id = ?", (new_rating, model_id)
+                )
+                total_decayed += decay_amount
+                details.append(DecayDetail(
+                    model_id=model_id, model_name=model_name,
+                    old_rating=round(old_rating, 1), new_rating=new_rating,
+                    decay_amount=decay_amount, inactive_days=inactive_period_count * inactive_days,
+                ))
+
+        await self.db.commit()
+        return {
+            "models_affected": len(details),
+            "total_rating_decayed": round(total_decayed, 1),
+            "details": details,
+        }
+
+    # -- Dashboard Analytics ------------------------------------------------
+
+    async def get_rating_distribution(self) -> dict:
+        """Get rating distribution histogram."""
+        from evalarena.db.models import RatingDistributionBucket
+
+        models = await self.list_models()
+        if not models:
+            return {
+                "buckets": [], "total_models": 0,
+                "mean_rating": 0.0, "median_rating": 0.0,
+            }
+
+        ratings = [m.rating for m in models]
+        mean_rating = round(sum(ratings) / len(ratings), 1)
+        sorted_ratings = sorted(ratings)
+        mid = len(sorted_ratings) // 2
+        median_rating = round(
+            sorted_ratings[mid] if len(sorted_ratings) % 2 == 1
+            else (sorted_ratings[mid - 1] + sorted_ratings[mid]) / 2, 1
+        )
+
+        # Create 100-point buckets from 0 to max
+        max_r = int(max(ratings)) + 100
+        bucket_size = 100
+        buckets: list[RatingDistributionBucket] = []
+        for start in range(0, max_r, bucket_size):
+            end = start + bucket_size
+            count = sum(1 for r in ratings if start <= r < end)
+            buckets.append(RatingDistributionBucket(
+                range_start=start, range_end=end, count=count,
+            ))
+
+        return {
+            "buckets": [b.model_dump() for b in buckets],
+            "total_models": len(models),
+            "mean_rating": mean_rating,
+            "median_rating": median_rating,
+        }
+
+    async def get_activity_trends(self, days: int = 14) -> list[dict]:
+        """Get daily battle and vote counts over the last N days."""
+        from datetime import timedelta
+
+        results: list[dict] = []
+        now = datetime.now(timezone.utc)
+
+        for i in range(days - 1, -1, -1):
+            day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+            async with self.db.execute(
+                "SELECT COUNT(*) FROM battles WHERE created_at LIKE ?",
+                (f"{day}%",),
+            ) as cur:
+                row = await cur.fetchone()
+                battle_count = row[0] if row else 0
+
+            async with self.db.execute(
+                "SELECT COUNT(*) FROM votes WHERE created_at LIKE ?",
+                (f"{day}%",),
+            ) as cur:
+                row = await cur.fetchone()
+                vote_count = row[0] if row else 0
+
+            results.append({"date": day, "battles": battle_count, "votes": vote_count})
+        return results
+
+    async def get_top_movers(self, days: int = 7, limit: int = 5) -> tuple[list[dict], list[dict]]:
+        """Get top gainers and losers over the last N days."""
+        from datetime import timedelta
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        # Find rating changes for models that had battles in the period
+        changes: list[dict] = []
+        async with self.db.execute(
+            "SELECT DISTINCT m.id, m.name, m.rating FROM models m "
+            "JOIN battles b ON (b.model_a_id = m.id OR b.model_b_id = m.id) "
+            "WHERE b.created_at > ? AND b.winner IS NOT NULL",
+            (cutoff,),
+        ) as cur:
+            async for row in cur:
+                model_id = row["id"]
+                current_rating = row["rating"]
+
+                # Get oldest rating in the period
+                async with self.db.execute(
+                    "SELECT model_a_rating_before, model_b_rating_before, model_a_id "
+                    "FROM battles WHERE (model_a_id = ? OR model_b_id = ?) "
+                    "AND created_at > ? AND winner IS NOT NULL "
+                    "ORDER BY created_at ASC LIMIT 1",
+                    (model_id, model_id, cutoff),
+                ) as bc:
+                    brow = await bc.fetchone()
+                    if brow:
+                        if brow["model_a_id"] == model_id:
+                            old_rating = brow["model_a_rating_before"] or 1000.0
+                        else:
+                            old_rating = brow["model_b_rating_before"] or 1000.0
+                    else:
+                        old_rating = 1000.0
+
+                change = round(current_rating - old_rating, 1)
+                changes.append({
+                    "model_id": model_id, "model_name": row["name"],
+                    "rating_change": change, "current_rating": round(current_rating, 1),
+                    "period_days": days,
+                })
+
+        gainers = sorted(changes, key=lambda x: x["rating_change"], reverse=True)[:limit]
+        losers = sorted(changes, key=lambda x: x["rating_change"])[:limit]
+
+        return gainers, losers

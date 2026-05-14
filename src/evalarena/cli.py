@@ -1101,6 +1101,242 @@ def list_webhooks_cmd(event: str | None, db_path: str):
     asyncio.run(_list())
 
 
+# -- Tag Commands ---------------------------------------------------------
+
+
+@main.command("create-tag")
+@click.argument("name")
+@click.option("--color", default="#6366f1", help="Tag color (hex code)")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def create_tag_cmd(name: str, color: str, db_path: str):
+    """Create a new model tag."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _create():
+        db = Database(db_path)
+        await db.connect()
+        try:
+            existing = await db.get_tag_by_name(name)
+            if existing:
+                click.echo(f"Tag '{name}' already exists", err=True)
+                return
+            tag = await db.create_tag(name, color)
+            click.echo(f"Tag created: {tag['name']} (id={tag['id']}, color={tag['color']})")
+        finally:
+            await db.close()
+
+    asyncio.run(_create())
+
+
+@main.command("list-tags")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def list_tags_cmd(db_path: str):
+    """List all tags."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _list():
+        db = Database(db_path)
+        await db.connect()
+        tags = await db.list_tags()
+        await db.close()
+
+        if not tags:
+            click.echo("No tags found.")
+            return
+
+        click.echo(f"{'Name':<25} {'Color':<10} {'Models':>6}")
+        click.echo("-" * 45)
+        for t in tags:
+            click.echo(f"{t['name']:<25} {t['color']:<10} {t['model_count']:>6}")
+
+    asyncio.run(_list())
+
+
+@main.command("tag-model")
+@click.argument("model_name")
+@click.argument("tag_name")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def tag_model_cmd(model_name: str, tag_name: str, db_path: str):
+    """Add a tag to a model."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _tag():
+        db = Database(db_path)
+        await db.connect()
+        try:
+            model = await db.get_model_by_name(model_name)
+            if not model:
+                click.echo(f"Model '{model_name}' not found", err=True)
+                return
+            tag = await db.get_tag_by_name(tag_name)
+            if not tag:
+                click.echo(f"Tag '{tag_name}' not found", err=True)
+                return
+            await db.add_model_tag(model.id, tag["id"])
+            click.echo(f"Tagged '{model_name}' with '{tag_name}'")
+        finally:
+            await db.close()
+
+    asyncio.run(_tag())
+
+
+@main.command("untag-model")
+@click.argument("model_name")
+@click.argument("tag_name")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def untag_model_cmd(model_name: str, tag_name: str, db_path: str):
+    """Remove a tag from a model."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _untag():
+        db = Database(db_path)
+        await db.connect()
+        try:
+            model = await db.get_model_by_name(model_name)
+            if not model:
+                click.echo(f"Model '{model_name}' not found", err=True)
+                return
+            tag = await db.get_tag_by_name(tag_name)
+            if not tag:
+                click.echo(f"Tag '{tag_name}' not found", err=True)
+                return
+            await db.remove_model_tag(model.id, tag["id"])
+            click.echo(f"Removed tag '{tag_name}' from '{model_name}'")
+        finally:
+            await db.close()
+
+    asyncio.run(_untag())
+
+
+@main.command("delete-tag")
+@click.argument("name")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+@click.option("--yes", is_flag=True, help="Skip confirmation")
+def delete_tag_cmd(name: str, db_path: str, yes: bool):
+    """Delete a tag by name."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _delete():
+        db = Database(db_path)
+        await db.connect()
+        try:
+            tag = await db.get_tag_by_name(name)
+            if not tag:
+                click.echo(f"Tag '{name}' not found", err=True)
+                return
+            if not yes:
+                click.confirm(f"Delete tag '{name}' (used by {tag['model_count']} models)?", abort=True)
+            deleted = await db.delete_tag(tag["id"])
+            if deleted:
+                click.echo(f"Deleted tag: {name}")
+        finally:
+            await db.close()
+
+    asyncio.run(_delete())
+
+
+# -- Rating Decay Command -------------------------------------------------
+
+
+@main.command("apply-decay")
+@click.option("--inactive-days", default=30, type=int, help="Days of inactivity before decay")
+@click.option("--decay-rate", default=0.02, type=float, help="Decay rate per period")
+@click.option("--min-rating", default=100.0, type=float, help="Minimum rating floor")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def apply_decay_cmd(inactive_days: int, decay_rate: float, min_rating: float, db_path: str):
+    """Apply rating decay to inactive models."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _decay():
+        db = Database(db_path)
+        await db.connect()
+        result = await db.apply_rating_decay(
+            inactive_days=inactive_days,
+            decay_rate=decay_rate,
+            min_rating=min_rating,
+        )
+        await db.close()
+
+        click.echo(f"Rating Decay Applied")
+        click.echo("=" * 50)
+        click.echo(f"  Models affected: {result['models_affected']}")
+        click.echo(f"  Total rating decayed: {result['total_rating_decayed']}")
+        if result["details"]:
+            click.echo()
+            click.echo(f"  {'Model':<25} {'Old':>8} {'New':>8} {'Decay':>8} {'Inactive':>10}")
+            click.echo("  " + "-" * 63)
+            for d in result["details"]:
+                detail = d if isinstance(d, dict) else d.model_dump()
+                click.echo(
+                    f"  {detail['model_name']:<25} {detail['old_rating']:>8.1f} "
+                    f"{detail['new_rating']:>8.1f} {detail['decay_amount']:>8.1f} "
+                    f"{detail['inactive_days']:>8}d"
+                )
+
+    asyncio.run(_decay())
+
+
+# -- Dashboard Stats Command ----------------------------------------------
+
+
+@main.command("dashboard-stats")
+@click.option("--period", default=7, type=int, help="Period in days for top movers")
+@click.option("--db", "db_path", default="evalarena.db", help="Database file path")
+def dashboard_stats_cmd(period: int, db_path: str):
+    """Show dashboard analytics (rating distribution, activity trends)."""
+    import asyncio
+    from evalarena.db.database import Database
+
+    async def _stats():
+        db = Database(db_path)
+        await db.connect()
+
+        # Rating distribution
+        dist = await db.get_rating_distribution()
+        click.echo("📊 Rating Distribution")
+        click.echo("=" * 40)
+        click.echo(f"  Total models: {dist['total_models']}")
+        click.echo(f"  Mean rating: {dist['mean_rating']}")
+        click.echo(f"  Median rating: {dist['median_rating']}")
+        if dist["buckets"]:
+            click.echo()
+            for b in dist["buckets"]:
+                bar = "█" * b["count"]
+                click.echo(f"  {b['range_start']:>4}-{b['range_end']:<4} | {bar} ({b['count']})")
+
+        # Activity trends
+        trends = await db.get_activity_trends(days=7)
+        click.echo()
+        click.echo("📈 Activity (last 7 days)")
+        click.echo("=" * 40)
+        for t in trends:
+            bar = "▓" * t["battles"]
+            click.echo(f"  {t['date']} | {bar} battles={t['battles']} votes={t['votes']}")
+
+        # Top movers
+        gainers, losers = await db.get_top_movers(days=period, limit=3)
+        if gainers:
+            click.echo()
+            click.echo(f"🚀 Top Gainers (last {period} days)")
+            for g in gainers:
+                click.echo(f"  {g['model_name']:<25} +{g['rating_change']:.1f} -> {g['current_rating']:.1f}")
+        if losers:
+            click.echo()
+            click.echo(f"📉 Top Losers (last {period} days)")
+            for l in losers:
+                click.echo(f"  {l['model_name']:<25} {l['rating_change']:.1f} -> {l['current_rating']:.1f}")
+
+        await db.close()
+
+    asyncio.run(_stats())
+
+
 # -- Backup/Restore Commands ----------------------------------------------
 
 
@@ -1118,11 +1354,12 @@ def backup_cmd(output_path: str, db_path: str):
         await db.connect()
 
         backup_data: dict = {
-            "version": "0.7.0",
+            "version": "0.8.0",
             "models": [],
             "battles": [],
             "prompt_templates": [],
             "webhooks": [],
+            "tags": [],
         }
 
         # Export models
