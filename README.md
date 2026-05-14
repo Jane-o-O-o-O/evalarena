@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-317%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-379%20passed-brightgreen.svg)]()
 [![PyPI](https://img.shields.io/pypi/v/evalarena?color=blue)](https://pypi.org/project/evalarena/)
 
 ### Why EvalArena?
@@ -102,8 +102,17 @@ EvalArena 是一个 LLM 评估竞技场，提供盲评侧边对比（blind side-
 | `/api/streaks` | GET | **连胜追踪排行榜** |
 | `/api/models/{id}/streak` | GET | 单模型连胜信息 |
 | `/api/webhooks` | GET/POST | **Webhook管理** |
-| `/api/webhooks/{id}` | DELETE | 删除Webhook |
-| `/api/keys` | GET/POST | API 密钥管理 |
+|| `/api/webhooks/{id}` | DELETE | 删除Webhook |
+|| `/api/tags` | GET/POST | **标签管理** |
+|| `/api/tags/{id}` | GET/PUT/DELETE | 标签详情/更新/删除 |
+|| `/api/tags/{id}/models/{mid}` | POST/DELETE | 标签关联/取消关联模型 |
+|| `/api/tags/{id}/models` | GET | 按标签查询模型 |
+|| `/api/dashboard/stats` | GET | **仪表盘全量分析** |
+|| `/api/dashboard/rating-distribution` | GET | **评分分布直方图** |
+|| `/api/dashboard/activity-trends` | GET | **活跃趋势** |
+|| `/api/dashboard/top-movers` | GET | **最大变动模型** |
+|| `/api/dashboard/apply-decay` | POST | **执行评分衰减** |
+|| `/api/keys` | GET/POST | API 密钥管理 |
 | `/api/providers` | GET | LLM Provider状态 |
 | `/health` | GET | 健康检查 |
 
@@ -162,6 +171,31 @@ EvalArena 是一个 LLM 评估竞技场，提供盲评侧边对比（blind side-
 - 完整数据库备份到 JSON
 - 从备份恢复（自动跳过重复数据）
 - CLI：`evalarena backup`、`evalarena restore`
+
+### 🏷️ 模型标签系统（Tags）
+- 灵活的多标签分类，模型可同时拥有多个标签
+- 支持自定义颜色的标签徽章
+- 按标签过滤查询模型列表
+- API：`POST /api/tags`、`GET /api/tags/{id}/models`
+- CLI：`evalarena create-tag`、`evalarena tag-model`、`evalarena list-tags`
+
+### 📉 评分衰减（Rating Decay）
+- 不活跃模型自动衰减评分，防止过时评分主导排行榜
+- 可配置衰减参数：不活跃天数、衰减率、最低评分底线
+- API：`POST /api/dashboard/apply-decay`
+- CLI：`evalarena apply-decay --inactive-days 30 --decay-rate 0.02`
+
+### 🌐 CORS 跨域支持
+- 可配置的跨域资源共享（CORS）中间件
+- 支持自定义允许的来源域名
+- 方便前端应用集成
+
+### 📊 仪表盘分析（Dashboard Analytics）
+- 评分分布直方图 — 显示各评分区间的模型数量
+- 活跃趋势 — 每日对战和投票数量统计
+- Top Movers — 评分变动最大的模型（上升/下降）
+- API：`GET /api/dashboard/stats`、`GET /api/dashboard/rating-distribution`
+- CLI：`evalarena dashboard-stats`
 
 ### 🐳 Docker 部署
 ```bash
