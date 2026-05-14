@@ -2,6 +2,25 @@
 
 All notable changes to EvalArena will be documented in this file.
 
+## [0.8.0] - 2026-05-14
+
+### Added
+- **Model tags system** — Flexible multi-label categorization with custom colors
+- **Tags API** — `POST/GET/PUT/DELETE /api/tags`, model association endpoints
+- **Tags CLI** — `create-tag`, `list-tags`, `tag-model`, `untag-model`, `delete-tag` commands
+- **Rating decay** — Automatic rating reduction for inactive models with configurable parameters
+- **Rating decay API** — `POST /api/dashboard/apply-decay`
+- **Rating decay CLI** — `apply-decay` command with configurable inactive days, decay rate, and min rating
+- **CORS middleware** — Configurable cross-origin resource sharing for frontend integration
+- **Dashboard analytics API** — Rating distribution histogram, activity trends, top movers
+- **Dashboard analytics CLI** — `dashboard-stats` command with visual terminal output
+- 62 new test cases (379 total)
+
+### Changed
+- Version bumped to 0.8.0
+- Added `tags` and `model_tags` database tables
+- Backup/restore includes tags data
+
 ## [0.7.0] - 2026-05-14
 
 ### Added
