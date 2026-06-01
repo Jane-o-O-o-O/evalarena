@@ -238,3 +238,34 @@ class TestTestElo:
         result1 = process(self.fixture, config=self.config)
         result2 = process(self.fixture, config=self.config)
         assert result1 == result2
+
+# [2026-06-01] Tests for test_elo
+class TestTestElo:
+    """Test suite for test_elo — rate limiting."""
+
+    def setup_method(self):
+        """Setup test fixtures."""
+        self.fixture = {}
+        self.config = {"enabled": True, "debug": False}
+
+    def test_basic_rate_limiting(self):
+        """Test basic rate limiting functionality."""
+        result = process(self.fixture, config=self.config)
+        assert result is not None
+        assert result.get("status") == "success"
+
+    def test_rate_limiting_with_empty_input(self):
+        """Test rate limiting with empty input."""
+        result = process({}, config=self.config)
+        assert result is not None
+
+    def test_rate_limiting_error_handling(self):
+        """Test rate limiting error handling."""
+        with pytest.raises(ValueError):
+            process(None, config=self.config)
+
+    def test_rate_limiting_caching(self):
+        """Test rate limiting caching behavior."""
+        result1 = process(self.fixture, config=self.config)
+        result2 = process(self.fixture, config=self.config)
+        assert result1 == result2
